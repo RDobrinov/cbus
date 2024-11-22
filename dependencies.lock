@@ -1,0 +1,21 @@
+dependencies:
+  idf:
+    source:
+      type: idf
+    version: 5.4.0
+  idf_gpio_driver:
+    component_hash: 4a93ddf3f1ec9797dde801f3b24e605f99f71e3222c1af9b012753518e882c33
+    dependencies:
+    - name: idf
+      version: '>=5.1.0'
+    source:
+      git: git@github.com:RDobrinov/idf_gpio_driver.git
+      path: .
+      type: git
+    version: 5c30d3846b0e18b6ebb0eff34ce5d41be957ef20
+direct_dependencies:
+- idf
+- idf_gpio_driver
+manifest_hash: 2962e40d5e692a9d092e7839ce3608ec626405a91f70273744b59a13bb20b944
+target: esp32
+version: 2.0.0

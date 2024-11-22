@@ -1,0 +1,7 @@
+## IDF Component Manager Manifest File
+dependencies:
+  ## Required IDF version
+  idf: ">=5.3.0"
+  idf_gpio_driver:
+    version: dev-main
+    git: git@github.com:RDobrinov/idf_gpio_driver.git
