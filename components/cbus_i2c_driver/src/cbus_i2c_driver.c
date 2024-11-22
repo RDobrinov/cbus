@@ -29,7 +29,7 @@ typedef struct i2cbus_master_list {
 
 static i2cbus_master_list_t *i2cbus_find_master(gpio_num_t scl, gpio_num_t sda);
 static i2cbus_device_list_t *i2cbus_find_device(uint32_t id);
-static void i2cbus_kill_master(i2c_master_bus_handle_t *bus);
+static void i2cbus_kill_master(i2c_master_bus_handle_t bus);
 
 static i2cbus_device_list_t *i2c_devices = NULL;
 static i2cbus_master_list_t *i2c_masters = NULL;
@@ -72,18 +72,35 @@ cbus_common_id_t cbus_i2c_attach(cbus_device_config_t *payload) {
 
     if(i2cbus_find_device(new_id.id)) return (cbus_common_id_t) { .error = CBUS_ERR_DEVICE_EXIST, .id = new_id.id };
 
-    i2c_master_dev_handle_t *new_dev_handle = (i2c_master_dev_handle_t *)calloc(1, sizeof(i2c_master_dev_handle_t));
+    i2c_master_dev_handle_t *new_device_handle = (i2c_master_dev_handle_t *)calloc(1, sizeof(i2c_master_dev_handle_t));
     i2c_device_config_t device_conf = (i2c_device_config_t) { 
         .dev_addr_length = payload->i2c_device.dev_addr_length, 
         .device_address = payload->i2c_device.device_address,
         .scl_speed_hz = 10000 * payload->i2c_device.scl_speed_hz,
         .flags.disable_ack_check = payload->i2c_device.disable_ack_check
     };
-    esp_err_t err = i2c_master_bus_add_device(master_bus->master, &device_conf, new_dev_handle);
+    esp_err_t err = i2c_master_bus_add_device(master_bus->master, &device_conf, new_device_handle);
     if( ESP_OK != err ) 
     {
-
+        free(new_device_handle);
+        i2cbus_kill_master(master_bus->master);
+        return (cbus_common_id_t) { .error = CBUS_ERR_BAD_ARGS, .id = 0x00000000UL };
     }
+    i2cbus_device_list_t *new_device_entry = (i2cbus_device_list_t *)calloc(1, sizeof(i2cbus_device_list_t));
+    if(!new_device_entry) {
+        i2c_master_bus_rm_device(*new_device_handle);
+        free(new_device_handle);
+        i2cbus_kill_master(master_bus->master);
+        return (cbus_common_id_t) { .error = CBUS_ERR_NO_MEM, .id = 0x00000000UL };
+    }
+    *new_device_entry = (i2cbus_device_list_t) {
+        .handle = new_device_handle,
+        .device_id = new_id.id,
+        .next = i2c_devices
+    };
+    new_device_entry->handle = new_device_handle;
+    new_device_entry->device_id = new_id.id;
+    new_device_entry->next = 
     /* END Attach device */
 }
 cbus_common_id_t cbus_i2c_deattach(uint32_t id) {
@@ -112,8 +129,25 @@ static i2cbus_device_list_t *i2cbus_find_device(uint32_t id){
 static void i2cbus_kill_master(i2c_master_bus_handle_t bus) {
     if(!bus->device_list.slh_first) {
         i2cbus_master_list_t *last_master = i2c_masters;
-        if(last_master->master == bus) i2c_masters = last_master->next;
-        else while( last_master && (last_master->next->master != bus)) last_master = last_master->next;
+        i2cbus_master_list_t *free_master = NULL;
+        if(last_master->master == bus) { 
+            i2c_masters = last_master->next;
+            free_master = last_master;
+        }
+        else { 
+            while( last_master && (last_master->next->master != bus)) last_master = last_master->next;
+            if(last_master) {
+                free_master = last_master->next;
+                last_master->next = last_master->next->next;
+                gpio_drv_free_pins( BIT64(bus->base->scl_num) | BIT64(bus->base->sda_num));
+                if(ESP_OK != i2c_del_master_bus(bus)) {
+
+                } else {
+
+                }
+            }
+        }
+        free(free_master);
     }
 }
 

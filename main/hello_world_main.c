@@ -18,6 +18,6 @@ void app_main(void)
 {
     printf("Hello world!\n");
     cbus_driver_t *cbus = (cbus_driver_t *)i2cbus_get_bus();
-    printf("%p, cbus_i2c->attach:%p cbus_i2c->deattach%p [%04lx][%ld]\n", cbus, cbus->attach, cbus->deattach, cbus->attach(0), cbus->deattach(123));
+    printf("%p, cbus_i2c->attach:%p cbus_i2c->deattach:%p [%04lx][%ld]\n", cbus, cbus->attach, cbus->deattach, cbus->attach(0), cbus->deattach(123));
     fflush(stdout);
 }
