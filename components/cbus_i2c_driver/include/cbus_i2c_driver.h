@@ -12,8 +12,10 @@
 extern "C" {
 #endif
 
-void *i2cbus_get_bus();
+void *i2cbus_get_bus(void);
 //cbus_driver_t *i2cbus_get_bus(void);
+
+void i2cbus_dump_devices(void);
 
 #ifdef __cplusplus
 }

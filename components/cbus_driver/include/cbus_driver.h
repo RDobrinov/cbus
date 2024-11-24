@@ -12,9 +12,9 @@ extern "C" {
 #endif
 
 typedef enum cbus_bus_types {
-    BUS_I2C,
-    BUS_SPI,
-    BUS_1WIRE
+    CBUS_BUS_I2C,
+    CBUS_BUS_SPI,
+    CBUS_BUS_1WIRE
 } cbus_bus_t;
 
 typedef enum {
@@ -63,10 +63,13 @@ typedef struct cbus_device_config {
         struct {
             uint32_t dev_addr_length:1;
             uint32_t device_address:10;
-            uint32_t scl_speed_hz:6;        /* Clock speed in 10KHz */
             uint32_t scl_gpio:7;
             uint32_t sda_gpio:7;
             uint32_t disable_ack_check:1;
+            uint32_t rlsb:6;
+            uint32_t scl_speed_hz:20;
+            uint32_t xfer_timeout_ms:4;
+            uint32_t rmsb:8;
         } i2c_device;
         struct {
             OneWire_ROMCode rom_code;
@@ -96,20 +99,31 @@ typedef struct {
     union {
         struct {
             uint32_t error:4;
-            uint32_t reserved:28
+            uint32_t reserved:28;
         };
         uint32_t val;
     };
     uint32_t id;
 } cbus_common_id_t;
 
+typedef struct {
+    struct {
+        uint32_t command:3;
+        uint32_t inDataLen:7;
+        uint32_t outDataLen:7;
+        uint32_t reserved:15;
+    };
+    uint32_t device_id;
+    uint8_t *data;
+} cbus_common_cmd_t;
+
 typedef struct cbus_driver {
     cbus_common_id_t (*attach)(cbus_device_config_t *payload);
     cbus_common_id_t (*deattach)(uint32_t id);
     void * (*deinit_bus)(void *payload);
-    void * (*read)(void *payload);
-    void * (*write)(void *payload);
-    void * (*rw)(void *payload);
+    cbus_common_id_t (*read)(cbus_common_cmd_t *payload);
+    cbus_common_id_t (*write)(cbus_common_cmd_t *payload);
+    cbus_common_id_t (*rw)(cbus_common_cmd_t *payload);
 } cbus_driver_t;
 
 //typedef struct cbus_driver *cbus_driver_t;
