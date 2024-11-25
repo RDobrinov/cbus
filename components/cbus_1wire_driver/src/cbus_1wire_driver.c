@@ -1,6 +1,9 @@
 
 #include "cbus_1wire_driver.h"
+#include "onewire/onewire_bus.h"
 #include "esp_mac.h"
+#include "driver/gpio.h"
+#include "../src/rmt_private.h"
 
 //uint16_t _genid(uint8_t *data) //crc16_mcrf4xx
 uint16_t _genid(uint8_t *data)
@@ -30,4 +33,15 @@ uint16_t cbus_1wire_init(void) {
     uint16_t id = _genid(rcode.raw_address);
     printf("%p\n", rcode.raw_address);
     return id;
+}
+
+void test_channles() {
+    printf("test 39\n");
+    onewire_bus_handle_t bus;
+    onewire_bus_config_t bus_config = { .bus_gpio_num = GPIO_NUM_22};
+    onewire_bus_rmt_config_t rmt_config = {.max_rx_bytes = 10};
+    onewire_new_bus_rmt(&bus_config, &rmt_config, &bus);
+    if(bus) printf("test 43\n");
+    onewire_bus_rmt_obj_t *bus_rmt = __containerof(bus, onewire_bus_rmt_obj_t, base);
+    printf("TXRMTCH%2d, RXRMTCH%2d\n", bus_rmt->tx_channel->channel_id, bus_rmt->rx_channel->channel_id);
 }

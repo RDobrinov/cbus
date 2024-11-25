@@ -41,7 +41,10 @@ void app_main(void)
         }
     };
     printf("sizeof(cbus_device_config_t) %d\n", sizeof(cbus_device_config_t));
-    uint32_t id_i2c0d0 = cbus->attach(&dev_conf).id;
+
+    test_channles();
+    
+    /*uint32_t id_i2c0d0 = cbus->attach(&dev_conf).id;
 
     dev_conf.i2c_device.scl_gpio = GPIO_NUM_22;
     dev_conf.i2c_device.sda_gpio = GPIO_NUM_21;
@@ -75,7 +78,7 @@ void app_main(void)
     cbus->rw(&cmd);
     hexdump(buf, 25);
    
-    i2cbus_dump_devices();
+    i2cbus_dump_devices(); */
     //printf("%p, cbus_i2c->attach:%p cbus_i2c->deattach:%p [%04lx][%ld]\n", cbus, cbus->attach, cbus->deattach, cbus->attach(0), cbus->deattach(123));
     fflush(stdout);
 }

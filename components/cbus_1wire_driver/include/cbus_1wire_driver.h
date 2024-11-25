@@ -23,6 +23,8 @@ typedef union
 
 uint16_t cbus_1wire_init(void);
 
+void test_channles();
+
 #ifdef __cplusplus
 }
 #endif 
