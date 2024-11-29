@@ -1,5 +1,5 @@
-#ifndef _CBUS_I2C_DRIVER_H
-#define _CBUS_I2C_DRIVER_H
+#ifndef _CBUS_I2C_DRIVER_H_
+#define _CBUS_I2C_DRIVER_H_
 
 #include <inttypes.h>
 #include "idf_gpio_driver.h"
@@ -20,4 +20,4 @@ void i2cbus_dump_devices(void);
 #ifdef __cplusplus
 }
 #endif 
-#endif /* _CBUS_I2C_DRIVER_H */
+#endif /* _CBUS_I2C_DRIVER_H_ */

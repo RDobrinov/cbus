@@ -44,6 +44,7 @@ static i2cbus_device_list_t *i2c_devices = NULL;
 static cbus_driver_t *cbus_i2c = NULL;
 
 static cbus_common_id_t cbus_i2c_attach(cbus_device_config_t *payload) {
+    if(payload->bus_type != CBUS_BUS_I2C) return (cbus_common_id_t) { .error = CBUS_ERR_BAD_ARGS, .id = 0x00000000UL };
     uint64_t pinmask = (BIT64(payload->i2c_device.scl_gpio) | BIT64(payload->i2c_device.sda_gpio));
     /* -> I2C Controller acquisition */
     i2c_master_bus_handle_t port_handle = i2cbus_find_master(payload->i2c_device.scl_gpio, payload->i2c_device.sda_gpio);
@@ -58,6 +59,7 @@ static cbus_common_id_t cbus_i2c_attach(cbus_device_config_t *payload) {
             .flags.enable_internal_pullup = true
         };
         esp_err_t err = i2c_new_master_bus(&i2c_bus_config, &port_handle);
+        /* Error ??? */
         if(ESP_OK != err) {
             free(port_handle);
             gpio_drv_free_pins(pinmask);
@@ -140,6 +142,9 @@ static cbus_common_id_t cbus_i2c_command(cbus_common_cmd_t *payload) {
             break;
         case CBUSCMD_RW:
             err = i2c_master_transmit_receive(device->handle, payload->data, payload->inDataLen, payload->data, payload->outDataLen, device->xfer_timeout_ms);
+            break;
+        default:
+            return (cbus_common_id_t) { .error = CBUS_ERR_NOT_USED, .id = payload->device_id };
             break;
     }
     return (cbus_common_id_t) { .error = ( (ESP_OK == err) ? CBUS_OK : ((ESP_ERR_TIMEOUT == err) ? CBUS_ERR_TIMEOUT : CBUS_ERR_UNKNOWN) ), .id = payload->device_id }; 

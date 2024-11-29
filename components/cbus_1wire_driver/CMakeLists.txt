@@ -5,5 +5,5 @@ idf_component_register(
     "src/onewire/onewire_crc.c"
     "src/onewire/onewire_device.c"
     INCLUDE_DIRS "include"
-    REQUIRES esp_event driver
+    REQUIRES esp_event driver cbus_driver idf_gpio_driver
 )

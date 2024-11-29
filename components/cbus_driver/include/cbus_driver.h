@@ -1,15 +1,15 @@
 #ifndef _CBUS_DRIVER_H_
 #define _CBUS_DRIVER_H_
 
-#include <inttypes.h>
-#include "cbus_1wire_driver.h"
-#include "cbus_i2c_driver.h"
-#include "esp_event.h"
-//#include "driver/i2c_master.h"
-
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#include <inttypes.h>
+#include "OneWire_ROMCode.h"
+#include "cbus_1wire_driver.h"
+#include "cbus_i2c_driver.h"
+#include "esp_event.h"
 
 typedef enum cbus_bus_types {
     CBUS_BUS_I2C,
@@ -18,6 +18,7 @@ typedef enum cbus_bus_types {
 } cbus_bus_t;
 
 typedef enum {
+    CBUSCMD_RESET,
     CBUSCMD_READ,
     CBUSCMD_WRITE,
     CBUSCMD_RW,
@@ -46,7 +47,8 @@ typedef enum {
     CBUS_ERR_PIN_IN_USE,
     CBUS_ERR_DEVICE_EXIST,
     CBUS_ERR_DEVICE_NOT_FOUND,
-    CBUS_ERR_DEVICE_NOT_ACK
+    CBUS_ERR_DEVICE_NOT_ACK,
+    CBUS_ERR_NOT_USED
 } cbus_opcodes_t;
 
 typedef enum {
@@ -83,12 +85,12 @@ typedef struct cbus_device_config {
 
 typedef struct {
     struct {
-        uint32_t command:3;
+        uint32_t command:4;
         uint32_t data_type:3;
         uint32_t inDataLen:7;
         uint32_t outDataLen:7;
         uint32_t status:4;
-        uint32_t reserved:8;
+        uint32_t reserved:7;
     };
     uint32_t device_id;
     uint32_t event_it;
@@ -108,10 +110,10 @@ typedef struct {
 
 typedef struct {
     struct {
-        uint32_t command:3;
+        uint32_t command:4;
         uint32_t inDataLen:7;
         uint32_t outDataLen:7;
-        uint32_t reserved:15;
+        uint32_t reserved:14;
     };
     uint32_t device_id;
     uint8_t *data;

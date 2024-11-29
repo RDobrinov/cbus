@@ -24,6 +24,13 @@ void hexdump(const uint8_t *buf, size_t len) {
     return;
 }
 
+uint64_t swap_uint64( uint64_t val )
+{
+    val = ((val << 8) & 0xFF00FF00FF00FF00ULL ) | ((val >> 8) & 0x00FF00FF00FF00FFULL );
+    val = ((val << 16) & 0xFFFF0000FFFF0000ULL ) | ((val >> 16) & 0x0000FFFF0000FFFFULL );
+    return (val << 32) | (val >> 32);
+}
+
 void app_main(void)
 {
     printf("Hello world!\n");
@@ -42,7 +49,45 @@ void app_main(void)
     };
     printf("sizeof(cbus_device_config_t) %d\n", sizeof(cbus_device_config_t));
 
-    test_channles();
+    cbus_driver_t *owbus = (cbus_driver_t *)ow_get_bus();
+    cbus_device_config_t ow_device_config = {
+        .bus_type = CBUS_BUS_1WIRE,
+        .ow_device = {
+            .data_gpio = GPIO_NUM_22,
+            .rom_code = {
+                .raw_address = {0xDB, 0x04, 0x16, 0x74, 0xA7, 0x8C, 0xFF, 0x28}
+            },
+            .reserved = 0
+        }
+    };
+
+    cbus_common_id_t retcode = owbus->attach(&ow_device_config);
+    printf("cbus_common_id_t %02X / %08lX\n", retcode.error, retcode.id);
+
+    ow_device_config.ow_device.data_gpio = GPIO_NUM_18;
+    retcode = owbus->attach(&ow_device_config);
+    uint32_t deattach = retcode.id;
+    printf("cbus_common_id_t %02X / %08lX\n", retcode.error, retcode.id);
+
+    ow_device_config.ow_device.data_gpio = GPIO_NUM_26;
+    retcode = owbus->attach(&ow_device_config);
+    printf("cbus_common_id_t %02X / %08lX\n", retcode.error, retcode.id);
+    owbus_dump_devices();
+    retcode = owbus->deattach(deattach);
+    owbus_dump_devices();
+    ow_device_config.ow_device.data_gpio = GPIO_NUM_21;
+    retcode = owbus->attach(&ow_device_config);
+    printf("cbus_common_id_t %02X / %08lX\n", retcode.error, retcode.id);
+    owbus_dump_devices();
+    ow_device_config.ow_device.data_gpio = GPIO_NUM_21;
+    retcode = owbus->attach(&ow_device_config);
+    printf("cbus_common_id_t %02X / %08lX\n", retcode.error, retcode.id);
+
+    ow_device_config.ow_device.rom_code.serial_number[6] = 0x55;
+    retcode = owbus->attach(&ow_device_config);
+    printf("cbus_common_id_t %02X / %08lX\n", retcode.error, retcode.id);
+    owbus_dump_devices();
+    //test_channles();
     
     /*uint32_t id_i2c0d0 = cbus->attach(&dev_conf).id;
 
@@ -80,5 +125,7 @@ void app_main(void)
    
     i2cbus_dump_devices(); */
     //printf("%p, cbus_i2c->attach:%p cbus_i2c->deattach:%p [%04lx][%ld]\n", cbus, cbus->attach, cbus->deattach, cbus->attach(0), cbus->deattach(123));
+    //uint64_t ROMCode = 0xDB041674A78CFF28LLU;
+    //printf("swaped %016llX\n", swap_uint64(ROMCode));
     fflush(stdout);
 }
