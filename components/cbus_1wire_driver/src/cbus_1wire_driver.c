@@ -2,6 +2,7 @@
 #include "cbus_1wire_driver.h"
 #include "onewire/onewire_bus.h"
 #include "onewire/onewire_device.h"
+#include "onewire/onewire_cmd.h"
 #include "esp_mac.h"
 #include "driver/gpio.h"
 #include "../src/rmt_private.h"
@@ -31,12 +32,15 @@ static cbus_driver_t *cbus_ow = NULL;
 
 static cbus_common_id_t cbus_ow_attach(cbus_device_config_t *payload);
 static cbus_common_id_t cbus_ow_deattach(uint32_t id);
+static cbus_common_id_t cbus_ow_description(uint32_t id, uint8_t *desc, size_t len);
 static cbus_common_id_t cbus_ow_command(cbus_common_cmd_t *payload);
 
 static onewire_bus_handle_t owbus_find_handle(gpio_num_t gpio);
 static owbus_device_list_t *owbus_find_device(uint32_t id);
 static uint16_t _genid(uint8_t *data);
 static uint64_t _swap_romcode(uint64_t val);
+
+void hex(const uint8_t *buf, size_t len);
 
 /* Bus handlers */
 static cbus_common_id_t cbus_ow_attach(cbus_device_config_t *payload) {
@@ -46,7 +50,11 @@ static cbus_common_id_t cbus_ow_attach(cbus_device_config_t *payload) {
         /* -> RMT channel acquisition & creat OneWire bus */
         if(!gpio_drv_reserve(payload->ow_device.data_gpio)) return (cbus_common_id_t) { .error = CBUS_ERR_PIN_IN_USE, .id = 0x00000000UL };
         onewire_bus_config_t bus_config = { .bus_gpio_num = payload->ow_device.data_gpio};
-        onewire_bus_rmt_config_t rmt_config = {.max_rx_bytes = 10};
+        /* *> Keep in mind *<
+         * max_rx_bytes is allocate memory for rx channel. Same time this value blocks creating new rmt channel due lack of memory
+         * For example max_rx_bytes = 32 allow only one 1-wire bus to be created
+        */
+        onewire_bus_rmt_config_t rmt_config = {.max_rx_bytes = 16};
         if(ESP_OK != onewire_new_bus_rmt(&bus_config, &rmt_config, &handle)) {
             free(handle); /* DO YOU NEED this ??? */
             gpio_drv_free(payload->ow_device.data_gpio);
@@ -62,7 +70,7 @@ static cbus_common_id_t cbus_ow_attach(cbus_device_config_t *payload) {
         return (cbus_common_id_t) { .error = CBUS_ERR_NO_MEM, .id = 0x00000000UL };
     }
 
-    new_device_entry->address = _swap_romcode(*((uint64_t *)(payload->ow_device.rom_code.raw_address)));
+    new_device_entry->address = *((uint64_t *)(payload->ow_device.rom_code.raw_address));
     new_device_entry->handle = handle;
     new_device_entry->next = ow_devices;
 
@@ -75,7 +83,6 @@ static cbus_common_id_t cbus_ow_attach(cbus_device_config_t *payload) {
         .intr_id = _genid((uint8_t *)(&(new_device_entry->address))),
     };
     new_device_entry->device_id = new_id.id;
-    printf("ow_id %08lX, %016llx, %016llx\n", new_device_entry->device_id, *((uint64_t*)(payload->ow_device.rom_code.raw_address)), new_device_entry->address);
     if(owbus_find_device(new_id.id)) {
         free(new_device_entry);
         return (cbus_common_id_t) { .error = CBUS_ERR_DEVICE_EXIST, .id = new_id.id };
@@ -109,26 +116,88 @@ static cbus_common_id_t cbus_ow_deattach(uint32_t id) {
     return (cbus_common_id_t) { .error = CBUS_OK, .id = id };
 }
 
+static cbus_common_id_t cbus_ow_description(uint32_t id, uint8_t *desc, size_t len) {
+    owbus_device_list_t *device = owbus_find_device(id);
+    if(!device) return (cbus_common_id_t) { .error = CBUS_ERR_DEVICE_NOT_FOUND, .id = id };
+    onewire_bus_rmt_obj_t *bus_rmt = __containerof(device->handle, onewire_bus_rmt_obj_t, base);
+    char *buf = (char *)calloc(40, sizeof(uint8_t));
+    sprintf(buf, "%016llX @ owb/p%02ut%02ur%02u", _swap_romcode(device->address), 
+            bus_rmt->tx_channel->gpio_num, bus_rmt->tx_channel->channel_id, bus_rmt->rx_channel->channel_id);
+    memcpy(desc, buf, len);
+    desc[len-1] = 0x00;
+    return (cbus_common_id_t) { .error = CBUS_OK, .id = id };
+}
+
 static cbus_common_id_t cbus_ow_command(cbus_common_cmd_t *payload) {
+    /* -> SCAN 1-Wire bus for devices */
+    /* Valid device number passed to cbus_common_cmd_t device_id
+    *  - Scan registred device 1-Wire bus 
+    *  GPIO passed in cbus_common_cmd_t data
+    *  - Search for active bus for that GPIO or create new one for scan
+    *  
+    * Return array of uint64_t in cbus_common_cmd_t data 
+    * with number of elements (max 8) in cbus_common_cmd_t device_id
+    */
+    esp_err_t err = ESP_OK;
+    if(payload->command == CBUSCMD_SCAN) {
+        bool new_handle = false;
+        onewire_bus_handle_t handle = NULL;
+        gpio_num_t gpio = *((gpio_num_t *)(payload->data));
+        owbus_device_list_t *device = owbus_find_device(payload->device_id);
+        if(device) handle = device->handle;
+        else {
+            handle = owbus_find_handle(gpio);
+            if(!handle) {
+                onewire_bus_config_t bus_config = { .bus_gpio_num = gpio};
+                onewire_bus_rmt_config_t rmt_config = {.max_rx_bytes = 10};
+                if(ESP_OK != onewire_new_bus_rmt(&bus_config, &rmt_config, &handle)) {
+                    return (cbus_common_id_t) { .error = CBUS_ERR_NO_MEM, .id = 0x00000000UL };
+                }
+                new_handle = true;
+            }
+        }
+        uint64_t *found = (uint64_t *)payload->data;
+        cbus_common_id_t ret = { .error = CBUS_ERR_DEVICE_NOT_FOUND, .id = 0 };
+        onewire_device_iter_handle_t iter = NULL;
+        onewire_device_t next;
+        if(ESP_OK == onewire_new_device_iter(handle, &iter)) {
+            do {
+                err = onewire_device_iter_get_next(iter, &next);
+                if( ESP_OK == err ){
+                    *found = next.address;
+                    found++;
+                    ret.id++;
+                    ret.error = CBUS_OK;
+                }
+            } while ( (ESP_ERR_NOT_FOUND != err) || ((sizeof(uint64_t)*8) <= (found - (uint64_t *)payload->data)) );
+        }
+        if(new_handle) onewire_bus_del(handle);
+        return ret;
+    } /* <- SCAN 1-Wire bus for devices */
+
     owbus_device_list_t *device = owbus_find_device(payload->device_id);
     if(!device) return (cbus_common_id_t) { .error = CBUS_ERR_DEVICE_NOT_FOUND, .id = payload->device_id };
-    esp_err_t err = ESP_OK;
+    if(payload->command == CBUSCMD_RESET) {
+        err = onewire_bus_reset(device->handle);
+        return (cbus_common_id_t) { .error = ( (ESP_OK == err) ? CBUS_OK : CBUS_ERR_UNKNOWN), .id = payload->device_id }; 
+    }
+
+    memcpy((payload->data)+9, payload->data, payload->inDataLen);
+    payload->data[0] = ONEWIRE_CMD_MATCH_ROM;
+    *(uint64_t *)(&payload->data[1]) = device->address;
+    //hex(payload->data, payload->inDataLen+9);
+    err = ESP_OK;
     switch (payload->command) {
-        case CBUSCMD_READ:
-            err = onewire_bus_read_bytes(device->handle, payload->data, payload->outDataLen);
-            //err = i2c_master_transmit(device->handle, payload->data, payload->inDataLen, device->xfer_timeout_ms);
-            break;
+        //case CBUSCMD_READ:
+            //err = onewire_bus_read_bytes(device->handle, payload->data, payload->outDataLen);
+            //break;
         case CBUSCMD_WRITE:
-            err = onewire_bus_write_bytes(device->handle, payload->data, payload->inDataLen);
-            //err = i2c_master_receive(device->handle, payload->data, payload->outDataLen, device->xfer_timeout_ms);
+            err = onewire_bus_write_bytes(device->handle, payload->data, payload->inDataLen+9);
             break;
+        case CBUSCMD_READ:
         case CBUSCMD_RW:
-            err = onewire_bus_write_bytes(device->handle, payload->data, payload->inDataLen);
+            err = onewire_bus_write_bytes(device->handle, payload->data, payload->inDataLen+9);
             err = onewire_bus_read_bytes(device->handle, payload->data, payload->outDataLen);
-            //err = i2c_master_transmit_receive(device->handle, payload->data, payload->inDataLen, payload->data, payload->outDataLen, device->xfer_timeout_ms);
-            break;
-        case CBUSCMD_RESET:
-            err = onewire_bus_reset(device->handle);
             break;
         default:
             return (cbus_common_id_t) { .error = CBUS_ERR_NOT_USED, .id = payload->device_id };
@@ -193,7 +262,7 @@ uint16_t cbus_1wire_init(void) {
 
 void test_channles() {
     onewire_bus_handle_t bus;
-    onewire_bus_config_t bus_config = { .bus_gpio_num = GPIO_NUM_22};
+    onewire_bus_config_t bus_config = { .bus_gpio_num = GPIO_NUM_32};
     onewire_bus_rmt_config_t rmt_config = {.max_rx_bytes = 10};
     onewire_new_bus_rmt(&bus_config, &rmt_config, &bus);
     onewire_bus_rmt_obj_t *bus_rmt = __containerof(bus, onewire_bus_rmt_obj_t, base);
@@ -216,9 +285,8 @@ void *ow_get_bus(void) {
         if(cbus_ow) {
             cbus_ow->attach = &cbus_ow_attach;
             cbus_ow->deattach = &cbus_ow_deattach;
-            cbus_ow->read = &cbus_ow_command;
-            cbus_ow->write = &cbus_ow_command;
-            cbus_ow->rw = &cbus_ow_command;
+            cbus_ow->desc = &cbus_ow_description;
+            cbus_ow->execute = &cbus_ow_command;
         }
     }
     return cbus_ow;
@@ -231,4 +299,12 @@ void owbus_dump_devices(void) {
             device, device->device_id, _swap_romcode(device->address), device->handle, bus_rmt->tx_channel->channel_id, bus_rmt->rx_channel->channel_id,
             bus_rmt->tx_channel->gpio_num, bus_rmt, device->next);
     }
+}
+
+void hex(const uint8_t *buf, size_t len) {
+    if( !len ) return;
+    printf("[hex %p] ", buf);
+    for(int i=0; i<len; i++) printf("%02X ", buf[i]);
+    printf("\n");
+    return;
 }

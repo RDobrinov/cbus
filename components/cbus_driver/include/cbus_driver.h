@@ -23,6 +23,7 @@ typedef enum {
     CBUSCMD_WRITE,
     CBUSCMD_RW,
     CBUSCMD_PROBE,
+    CBUSCMD_SCAN,
     CBUSCMD_ATTACH,
     CBUSCMD_DEATTACH
 } cbus_command_t;
@@ -94,7 +95,7 @@ typedef struct {
     };
     uint32_t device_id;
     uint32_t event_it;
-    uint8_t payload[127];
+    uint8_t payload[128];
 } cbus_event_data_t;
 
 typedef struct {
@@ -122,15 +123,14 @@ typedef struct {
 typedef struct cbus_driver {
     cbus_common_id_t (*attach)(cbus_device_config_t *payload);
     cbus_common_id_t (*deattach)(uint32_t id);
-    void * (*deinit_bus)(void *payload);
-    cbus_common_id_t (*read)(cbus_common_cmd_t *payload);
-    cbus_common_id_t (*write)(cbus_common_cmd_t *payload);
-    cbus_common_id_t (*rw)(cbus_common_cmd_t *payload);
+    cbus_common_id_t (*desc)(uint32_t id, uint8_t *desc, size_t len);
+    //void * (*deinit_bus)(void *payload);
+    cbus_common_id_t (*execute)(cbus_common_cmd_t *payload);
 } cbus_driver_t;
 
 //typedef struct cbus_driver *cbus_driver_t;
 
-esp_event_loop_handle_t *cbus_initialize(void);
+//esp_event_loop_handle_t *cbus_initialize(void);
 
 #ifdef __cplusplus
 }

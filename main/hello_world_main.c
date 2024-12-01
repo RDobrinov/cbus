@@ -12,6 +12,8 @@
 #include "esp_chip_info.h"
 #include "esp_flash.h"
 #include "esp_system.h"
+#include "onewire/onewire_crc.h"
+#include "onewire/onewire_cmd.h"
 #include "cbus_driver.h"
 
 #include "esp_log.h"
@@ -34,7 +36,7 @@ uint64_t swap_uint64( uint64_t val )
 void app_main(void)
 {
     printf("Hello world!\n");
-    cbus_driver_t *cbus = (cbus_driver_t *)i2cbus_get_bus();
+    /*cbus_driver_t *cbus = (cbus_driver_t *)i2cbus_get_bus();
     cbus_device_config_t dev_conf = (cbus_device_config_t) {
         .bus_type = CBUS_BUS_I2C,
         .i2c_device = { 
@@ -48,22 +50,42 @@ void app_main(void)
         }
     };
     printf("sizeof(cbus_device_config_t) %d\n", sizeof(cbus_device_config_t));
-
+    */
     cbus_driver_t *owbus = (cbus_driver_t *)ow_get_bus();
     cbus_device_config_t ow_device_config = {
         .bus_type = CBUS_BUS_1WIRE,
         .ow_device = {
-            .data_gpio = GPIO_NUM_22,
+            .data_gpio = GPIO_NUM_32,
             .rom_code = {
-                .raw_address = {0xDB, 0x04, 0x16, 0x74, 0xA7, 0x8C, 0xFF, 0x28}
+                //.raw_address = {0xDB, 0x04, 0x16, 0x74, 0xA7, 0x8C, 0xFF, 0x28}
+                .raw_address = {0x28, 0xFF, 0x8C, 0xA7, 0x74, 0x16, 0x04, 0xDB}
             },
             .reserved = 0
         }
     };
 
-    cbus_common_id_t retcode = owbus->attach(&ow_device_config);
-    printf("cbus_common_id_t %02X / %08lX\n", retcode.error, retcode.id);
+    uint8_t scanbuf[128];
 
+    cbus_common_cmd_t scancmd = (cbus_common_cmd_t) {
+        .command = CBUSCMD_SCAN,
+        .device_id = 0,
+        .inDataLen = 0,
+        .outDataLen = 0,
+        .data = scanbuf
+    };
+    
+    *((gpio_num_t *)scanbuf) = GPIO_NUM_32;
+    cbus_common_id_t codes = owbus->execute(&scancmd);
+    //hexdump(scancmd.data, 8);
+    printf("Return code 0x%02X - Device(s): %lu %016llX\n", codes.error, codes.id, *((uint64_t *)scancmd.data));
+
+    *((uint64_t *)ow_device_config.ow_device.rom_code.raw_address) = *((uint64_t *)scancmd.data);
+    
+    cbus_common_id_t retcode = owbus->attach(&ow_device_config);
+    owbus->desc(retcode.id, scanbuf, 35);
+    printf("\n%s\n", scanbuf);
+    //printf("cbus_common_id_t %02X / %08lX\n", retcode.error, retcode.id);
+    /*
     ow_device_config.ow_device.data_gpio = GPIO_NUM_18;
     retcode = owbus->attach(&ow_device_config);
     uint32_t deattach = retcode.id;
@@ -85,10 +107,89 @@ void app_main(void)
 
     ow_device_config.ow_device.rom_code.serial_number[6] = 0x55;
     retcode = owbus->attach(&ow_device_config);
-    printf("cbus_common_id_t %02X / %08lX\n", retcode.error, retcode.id);
-    owbus_dump_devices();
+    printf("cbus_common_id_t %02X / %08lX\n", retcode.error, retcode.id); */
+
+    //owbus_dump_devices();
+
+    uint8_t buf[128];
+
+    cbus_common_cmd_t cmd = (cbus_common_cmd_t) {
+        .command = CBUSCMD_RESET,
+        .device_id = retcode.id,
+        .inDataLen = 4,
+        .outDataLen = 9,    //Scratchpad
+        .data = buf
+    };
+    owbus->execute(&cmd);
+    cmd.data[0] = 0x4E;
+    cmd.data[1] = 0x53;
+    cmd.data[2] = 0x21;
+    cmd.data[3] = 0x5F;
+    cmd.command = CBUSCMD_WRITE;
+    owbus->execute(&cmd);
+
+    cmd.command = CBUSCMD_RESET;
+    owbus->execute(&cmd);
+
+    cmd.data[0] = 0x44;
+    cmd.inDataLen = 1;
+    cmd.command = CBUSCMD_WRITE;
+    owbus->execute(&cmd);
+
+    vTaskDelay(pdMS_TO_TICKS(800));
+
+    cmd.command = CBUSCMD_RESET;
+    owbus->execute(&cmd);
+
+    cmd.command = CBUSCMD_READ;
+    cmd.data[0] = 0xBE;
+    cmd.inDataLen = 1;
+    owbus->execute(&cmd);
+
+    hexdump(cmd.data, 9);
+    printf("0x%02X, 0x%02X\n", onewire_crc8(0, cmd.data, 8), onewire_crc8(0, cmd.data, 9));
+
+    cmd.command = CBUSCMD_SCAN;
+    retcode = owbus->execute(&cmd);
+    printf("Return code 0x%02X - Device(s): %lu %016llX\n", retcode.error, retcode.id, *((uint64_t *)cmd.data));
+
+    //**/owbus->getaddress(&cmd);
+    //**/uint64_t rom = *((uint64_t *)cmd.data);
+    //**/cmd.data[0] = ONEWIRE_CMD_MATCH_ROM;
+    ///**/cmd.data[9] = 0x4E;
+    //**/*((uint64_t *)(&cmd.data[1])) = rom;
+    /*owbus->execute(&cmd);
+
+    cmd.data[10] = 0x52;
+    cmd.data[11] = 0x35;
+    cmd.data[12] = 0x3F;
+    cmd.inDataLen = 13;
+
+    cmd.command = CBUSCMD_WRITE;
+    hexdump(cmd.data, 10);
+    owbus->execute(&cmd);
+
+    cmd.data[9] = 0xBE;
+    cmd.inDataLen = 10;
+    cmd.command = CBUSCMD_RESET;
+    owbus->execute(&cmd);
+    //hexdump(cmd.data, cmd.inDataLen);
+    cmd.command = CBUSCMD_WRITE;
+    owbus->execute(&cmd);
+
+    cmd.command = CBUSCMD_READ;
+    owbus->execute(&cmd);
+    */
+
+    //payload->data[9] = payload->data[0];
+    //payload->data[0] = ONEWIRE_CMD_MATCH_ROM;
+    //memcpy(&payload->data[1], &(device->address), 8);
+
+    //#define DS18B20_CMD_CONVERT_TEMP      0x44
+    //#define DS18B20_CMD_WRITE_SCRATCHPAD  0x4E
+    //#define DS18B20_CMD_READ_SCRATCHPAD   0xBE
     //test_channles();
-    
+
     /*uint32_t id_i2c0d0 = cbus->attach(&dev_conf).id;
 
     dev_conf.i2c_device.scl_gpio = GPIO_NUM_22;

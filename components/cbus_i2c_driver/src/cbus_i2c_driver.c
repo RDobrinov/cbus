@@ -182,9 +182,7 @@ void *i2cbus_get_bus(void) {
         if(cbus_i2c) {
             cbus_i2c->attach = &cbus_i2c_attach;
             cbus_i2c->deattach = &cbus_i2c_deattach;
-            cbus_i2c->read = &cbus_i2c_command;
-            cbus_i2c->write = &cbus_i2c_command;
-            cbus_i2c->rw = &cbus_i2c_command;
+            cbus_i2c->execute = &cbus_i2c_command;
         }
     }
     return cbus_i2c;
