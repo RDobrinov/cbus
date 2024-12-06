@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: 2024 No Company name
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include "cbus_1wire_driver.h"
 #include "onewire/onewire_bus.h"
@@ -9,38 +14,107 @@
 
 #include "esp_log.h"
 
+/* Type for 1-Wire device id generator */
 typedef union {
     struct {
-        uint32_t gpio:7;
-        uint32_t tx_channel:3;
-        uint32_t rx_channel:3;
-        uint32_t reserved:3;
-        uint32_t intr_id:16;
+        uint32_t gpio:7;        /*!< 1-Wire bus pin */
+        uint32_t tx_channel:3;  /*!< RMT TX Channel */
+        uint32_t rx_channel:3;  /*!< RMT RX Channel */
+        uint32_t reserved:3;    /*!< Not used */
+        uint32_t intr_id:16;    /*!< CRC-16/MCRF4XX Seed is part of MAC */
     };
-    uint32_t id;
+    uint32_t id;                /*!< Device ID wrapper */
 } ow_device_id_t;
 
+/* Type of internal device list */
 typedef struct owbus_device_list {
-    uint32_t device_id;
-    uint64_t address;
-    onewire_bus_handle_t handle;
-    struct owbus_device_list *next;
+    uint32_t device_id;             /*!< 1-Wire device id */
+    uint64_t address;               /*!< 1-Wire ROM address */
+    onewire_bus_handle_t handle;    /*!< 1-Wire bus handle */
+    struct owbus_device_list *next; /*!< Pointer to next element */
 } owbus_device_list_t;
 
-static owbus_device_list_t *ow_devices = NULL;
-static cbus_driver_t *cbus_ow = NULL;
+static owbus_device_list_t *ow_devices = NULL;  /*!< First device list element */
+static cbus_driver_t *cbus_ow = NULL;           /*!< cbus driver handler */
 
+/**
+ * @brief Attach new 1-Wire device to bus
+ *
+ * @param[in] payload pointer to device configuration
+ * @return
+ *      - Common ID structure filled with result code and Device ID
+ */
 static cbus_common_id_t cbus_ow_attach(cbus_device_config_t *payload);
+
+/**
+ * @brief Deatach 1-Wire device from bus
+ *
+ * @param[in] id Device ID
+ * @return
+ *      - Common ID structure filled with result code and Device ID
+ * @note
+ *      - Remove device from list, free device handler and free I2C Port
+ *      if no devices left
+ */
 static cbus_common_id_t cbus_ow_deattach(uint32_t id);
+
+/**
+ * @brief Generate 1-Wire device description
+ *
+ * @param[in] id Device ID
+ * @param[in] len Maximum length for device description
+ * @param[out] desc Pointer to char array for description
+ * 
+ * @return
+ *      - Common ID structure filled with result code and Device ID
+ */
 static cbus_common_id_t cbus_ow_description(uint32_t id, uint8_t *desc, size_t len);
+
+/**
+ * @brief Execute command on 1-Wire bus
+ *
+ * @param[in] payload Pointer to Common CBUS command structure
+ * 
+ * @return
+ *      - Common ID structure filled with result code and Device ID
+ */
 static cbus_common_id_t cbus_ow_command(cbus_common_cmd_t *payload);
 
+/**
+ * @brief Find onewire bus handle for given GPIO
+ *
+ * @param[in] gpio 1-Wire bus pin
+ * @return
+ *      - onewire bus handle or NULL if no handle created for given GPIO
+ */
 static onewire_bus_handle_t owbus_find_handle(gpio_num_t gpio);
-static owbus_device_list_t *owbus_find_device(uint32_t id);
-static uint16_t _genid(uint8_t *data);
-static uint64_t _swap_romcode(uint64_t val);
 
-void hex(const uint8_t *buf, size_t len);
+/**
+ * @brief Find device in internal list
+ *
+ * @param[in] id Device id
+ * @return
+ *      - Pointer to internal device list element
+ */
+static owbus_device_list_t *owbus_find_device(uint32_t id);
+
+/**
+ * @brief Generate internal 16bit ID
+ *
+ * @param[in] data Pointer to 1-Wire device ROM Code
+ * @return
+ *      - 16bit internal ID
+ */
+static uint16_t _genid(uint8_t *data);
+
+/**
+ * @brief Swap 1-Wire ROM Code
+ *
+ * @param[in] val ROM Code
+ * @return
+ *      - Swapped ROM Code
+ */
+static uint64_t _swap_romcode(uint64_t val);
 
 /* Bus handlers */
 static cbus_common_id_t cbus_ow_attach(cbus_device_config_t *payload) {
@@ -52,7 +126,8 @@ static cbus_common_id_t cbus_ow_attach(cbus_device_config_t *payload) {
         onewire_bus_config_t bus_config = { .bus_gpio_num = payload->ow_device.data_gpio};
         /* *> Keep in mind *<
          * max_rx_bytes is allocate memory for rx channel. Same time this value blocks creating new rmt channel due lack of memory
-         * For example max_rx_bytes = 32 allow only one 1-wire bus to be created
+         * For example max_rx_bytes = 32 allow only one 1-wire bus to be created.
+         * 8 bytes per channel do not overlap channels. (ESP32 has 64 blocks, S3 48 blocks)
         */
         onewire_bus_rmt_config_t rmt_config = {.max_rx_bytes = 16};
         if(ESP_OK != onewire_new_bus_rmt(&bus_config, &rmt_config, &handle)) {
@@ -70,7 +145,7 @@ static cbus_common_id_t cbus_ow_attach(cbus_device_config_t *payload) {
         return (cbus_common_id_t) { .error = CBUS_ERR_NO_MEM, .id = 0x00000000UL };
     }
 
-    new_device_entry->address = *((uint64_t *)(payload->ow_device.rom_code.raw_address));
+    new_device_entry->address = payload->ow_device.rom_code;
     new_device_entry->handle = handle;
     new_device_entry->next = ow_devices;
 
@@ -124,6 +199,7 @@ static cbus_common_id_t cbus_ow_description(uint32_t id, uint8_t *desc, size_t l
     sprintf(buf, "%016llX @ owb/p%02ut%02ur%02u", _swap_romcode(device->address), 
             bus_rmt->tx_channel->gpio_num, bus_rmt->tx_channel->channel_id, bus_rmt->rx_channel->channel_id);
     memcpy(desc, buf, len);
+    free(buf);
     desc[len-1] = 0x00;
     return (cbus_common_id_t) { .error = CBUS_OK, .id = id };
 }
@@ -182,15 +258,13 @@ static cbus_common_id_t cbus_ow_command(cbus_common_cmd_t *payload) {
         return (cbus_common_id_t) { .error = ( (ESP_OK == err) ? CBUS_OK : CBUS_ERR_UNKNOWN), .id = payload->device_id }; 
     }
 
+    /* Prepare command for 1-Wire device */
+    /* MATCH ROM:ROM CODE:COMMAND */
     memcpy((payload->data)+9, payload->data, payload->inDataLen);
     payload->data[0] = ONEWIRE_CMD_MATCH_ROM;
     *(uint64_t *)(&payload->data[1]) = device->address;
-    //hex(payload->data, payload->inDataLen+9);
     err = ESP_OK;
     switch (payload->command) {
-        //case CBUSCMD_READ:
-            //err = onewire_bus_read_bytes(device->handle, payload->data, payload->outDataLen);
-            //break;
         case CBUSCMD_WRITE:
             err = onewire_bus_write_bytes(device->handle, payload->data, payload->inDataLen+9);
             break;
@@ -224,6 +298,17 @@ static owbus_device_list_t *owbus_find_device(uint32_t id) {
     return found;
 }
 
+/*
+static owbus_device_list_t *owbus_find_device(uint32_t id) {
+    for (owbus_device_list_t *dev = ow_devices; dev != NULL; dev = dev->next) {
+        if (dev->device_id == id) {
+            return dev;
+        }
+    }
+    return NULL;
+}
+*/
+
 static uint16_t _genid(uint8_t *data) //crc16_mcrf4xx
 {
     uint8_t len = 8;
@@ -252,33 +337,6 @@ static uint64_t _swap_romcode(uint64_t val)
     return (val << 32) | (val >> 32);
 }
 
-uint16_t cbus_1wire_init(void) {
-    OneWire_ROMCode rcode = (OneWire_ROMCode) { .raw_address = { 0x28, 0x02, 0x01, 0x03, 0x04, 0x05, 0x06, 0x99} };
-    printf("%p\n", rcode.raw_address);
-    uint16_t id = _genid(rcode.raw_address);
-    printf("%p\n", rcode.raw_address);
-    return id;
-}
-
-void test_channles() {
-    onewire_bus_handle_t bus;
-    onewire_bus_config_t bus_config = { .bus_gpio_num = GPIO_NUM_32};
-    onewire_bus_rmt_config_t rmt_config = {.max_rx_bytes = 10};
-    onewire_new_bus_rmt(&bus_config, &rmt_config, &bus);
-    onewire_bus_rmt_obj_t *bus_rmt = __containerof(bus, onewire_bus_rmt_obj_t, base);
-    printf("TXRMTCH%2d, RXRMTCH%2d\n", bus_rmt->tx_channel->channel_id, bus_rmt->rx_channel->channel_id);
-    onewire_device_iter_handle_t iter = NULL;
-    onewire_device_t next;
-    esp_err_t sresult = ESP_OK;
-    if(ESP_OK == onewire_new_device_iter(bus, &iter)) printf("Device iterator created\n");
-    do {
-        sresult = onewire_device_iter_get_next(iter, &next);
-        if( ESP_OK == sresult ){
-            printf("%016llX\n", next.address);
-        }
-    } while (ESP_ERR_NOT_FOUND != sresult);
-}
-
 void *ow_get_bus(void) {
     if(!cbus_ow) { 
         cbus_ow = (cbus_driver_t *)calloc(1, sizeof(cbus_driver_t));
@@ -299,12 +357,4 @@ void owbus_dump_devices(void) {
             device, device->device_id, _swap_romcode(device->address), device->handle, bus_rmt->tx_channel->channel_id, bus_rmt->rx_channel->channel_id,
             bus_rmt->tx_channel->gpio_num, bus_rmt, device->next);
     }
-}
-
-void hex(const uint8_t *buf, size_t len) {
-    if( !len ) return;
-    printf("[hex %p] ", buf);
-    for(int i=0; i<len; i++) printf("%02X ", buf[i]);
-    printf("\n");
-    return;
 }

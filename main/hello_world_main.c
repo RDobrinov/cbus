@@ -36,7 +36,7 @@ uint64_t swap_uint64( uint64_t val )
 void app_main(void)
 {
     printf("Hello world!\n");
-    /*cbus_driver_t *cbus = (cbus_driver_t *)i2cbus_get_bus();
+    cbus_driver_t *cbus = (cbus_driver_t *)i2cbus_get_bus();
     cbus_device_config_t dev_conf = (cbus_device_config_t) {
         .bus_type = CBUS_BUS_I2C,
         .i2c_device = { 
@@ -50,21 +50,27 @@ void app_main(void)
         }
     };
     printf("sizeof(cbus_device_config_t) %d\n", sizeof(cbus_device_config_t));
-    */
+    cbus_common_id_t desc = cbus->attach(&dev_conf);
+
+    uint8_t scanbuf[128];
+    cbus->desc(desc.id, scanbuf, 35);
+    printf("%s\n", scanbuf);
+
     cbus_driver_t *owbus = (cbus_driver_t *)ow_get_bus();
     cbus_device_config_t ow_device_config = {
         .bus_type = CBUS_BUS_1WIRE,
         .ow_device = {
             .data_gpio = GPIO_NUM_32,
-            .rom_code = {
+            .rom_code = 0x28FF8CA7741604DBLLU,
+            //.rom_code = {
                 //.raw_address = {0xDB, 0x04, 0x16, 0x74, 0xA7, 0x8C, 0xFF, 0x28}
-                .raw_address = {0x28, 0xFF, 0x8C, 0xA7, 0x74, 0x16, 0x04, 0xDB}
-            },
+                //.raw_address = {0x28, 0xFF, 0x8C, 0xA7, 0x74, 0x16, 0x04, 0xDB}
+            //},
             .reserved = 0
         }
     };
 
-    uint8_t scanbuf[128];
+    //uint8_t scanbuf[128];
 
     cbus_common_cmd_t scancmd = (cbus_common_cmd_t) {
         .command = CBUSCMD_SCAN,
@@ -79,11 +85,17 @@ void app_main(void)
     //hexdump(scancmd.data, 8);
     printf("Return code 0x%02X - Device(s): %lu %016llX\n", codes.error, codes.id, *((uint64_t *)scancmd.data));
 
-    *((uint64_t *)ow_device_config.ow_device.rom_code.raw_address) = *((uint64_t *)scancmd.data);
+    //*((uint64_t *)ow_device_config.ow_device.rom_code.raw_address) = *((uint64_t *)scancmd.data);
     
     cbus_common_id_t retcode = owbus->attach(&ow_device_config);
     owbus->desc(retcode.id, scanbuf, 35);
     printf("\n%s\n", scanbuf);
+
+    ow_device_config.ow_device.data_gpio = GPIO_NUM_33;
+    owbus->attach(&ow_device_config);
+
+    ow_device_config.ow_device.data_gpio = GPIO_NUM_22;
+    owbus->attach(&ow_device_config);
     //printf("cbus_common_id_t %02X / %08lX\n", retcode.error, retcode.id);
     /*
     ow_device_config.ow_device.data_gpio = GPIO_NUM_18;

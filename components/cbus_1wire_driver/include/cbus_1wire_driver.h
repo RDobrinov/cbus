@@ -1,10 +1,15 @@
-#ifndef _CBUS_1WIRE_DRIVER_H
-#define _CBUS_1WIRE_DRIVER_H
+/*
+ * SPDX-FileCopyrightText: 2024 No Company name
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#ifndef _CBUS_1WIRE_DRIVER_H_
+#define _CBUS_1WIRE_DRIVER_H_
 
 #include <inttypes.h>
 #include "idf_gpio_driver.h"
 #include "esp_event.h"
-//#include "driver/i2c_master.h"
 
 #include "cbus_driver.h"
 
@@ -12,13 +17,20 @@
 extern "C" {
 #endif
 
+/**
+ * @brief Create new 1-Wire bus handle
+ *
+ * @return
+ *      - Created handle
+ */
 void *ow_get_bus(void);
-void owbus_dump_devices(void);
-uint16_t cbus_1wire_init(void);
 
-void test_channles();
+/**
+ * Not used
+ */
+void owbus_dump_devices(void);
 
 #ifdef __cplusplus
 }
 #endif 
-#endif /* _CBUS_1WIRE_DRIVER_H */
+#endif /* _CBUS_1WIRE_DRIVER_H_ */
