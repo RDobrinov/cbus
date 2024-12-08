@@ -106,6 +106,12 @@ typedef struct cbus_device_config {
                 uint32_t reserved:25;       /*!< Not used */
             };
         } ow_device;
+        struct {
+            uint32_t miso_gpio:7;
+            uint32_t mosi_gpio:7;
+            uint32_t sclk_gpio:7;
+            uint32_t cs_gpio:7;
+        } spi_device;
     };
 } cbus_device_config_t;
 

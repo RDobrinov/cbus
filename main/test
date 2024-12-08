@@ -1,0 +1,50 @@
+    spi_bus_config_t bus_config = {
+        .mosi_io_num = 13,
+        .miso_io_num = 12,
+        .sclk_io_num = 14,
+        .quadwp_io_num = -1,
+        .quadhd_io_num = -1,
+        .max_transfer_sz = 32,
+    };
+    esp_err_t ret = spi_bus_initialize(SPI2_HOST, &bus_config, SPI_DMA_CH_AUTO);
+    ESP_ERROR_CHECK(ret);
+    spi_device_interface_config_t dev_config = {
+        .address_bits = 8,
+        .command_bits = 0,
+        .dummy_bits = 0,
+        .cs_ena_pretrans = 8,
+        .clock_speed_hz = 2500000,
+        .mode = 1,
+        .spics_io_num = 15,
+        .queue_size = 1,
+        .flags = SPI_DEVICE_HALFDUPLEX | SPI_DEVICE_NO_DUMMY
+        //.flags = SPI_DEVICE_NO_DUMMY
+    };
+    spi_device_handle_t handle;
+    ret = spi_bus_add_device(SPI2_HOST, &dev_config, &handle);
+    ESP_ERROR_CHECK(ret);
+    uint8_t buf[8];
+    spi_transaction_t read_all = {
+        .addr = 0x00,
+        .length = 24,
+        .rxlength = 24,
+        .tx_buffer = NULL,
+        //.tx_buffer = &regaddrs,
+        .flags = SPI_TRANS_USE_RXDATA,
+        .rx_buffer = NULL
+    };
+    ret = spi_device_polling_transmit(handle, &read_all);
+    ESP_LOGI("read_all", "%04d", ret);
+    //hexdump(buf, 8);
+    printf("%08lX\n",*((uint32_t*)read_all.rx_data));
+    //uint8_t regval = 0b11010001;
+    //buf[0] = 0b11010001;
+    spi_transaction_t confreg = {
+        .addr = 0x80,
+        .length = 8,
+        .rxlength = 0,
+        .tx_buffer = NULL,
+        .rx_buffer = NULL,
+        .flags = SPI_TRANS_USE_TXDATA,
+        .tx_data[0] = 0b10000000
+    };
