@@ -57,7 +57,7 @@ esp_event_loop_handle_t *cbus_initialize(void) {
 }
 
 static void cbus_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
-    if(CBUS_EVENT != event_base | event_id != CBUS_EVENT_EXEC) return;
+    if((CBUS_EVENT != event_base) || (event_id != CBUS_EVENT_EXEC)) return;
     switch (((cbus_event_data_t*)event_data)->command) {
         case CBUSCMD_ATTACH:
             cbus_device_list_t *new_device = (cbus_device_list_t *)calloc(1, sizeof(cbus_device_list_t));
@@ -80,12 +80,16 @@ static void cbus_event_handler(void* arg, esp_event_base_t event_base, int32_t e
             new_device->id = new_id.id;
             new_device->next = run_config->devices;
             run_config->devices = new_device;
+            ((cbus_event_data_t*)event_data)->status = CBUS_OK;
             ((cbus_event_data_t*)event_data)->device_id = new_id.id;
             cbus_event_post(event_data);
-            return;
             break;
-        case CBUSCMD_DEATTACH:
-            cbus_device_list_t *device = cbus_find_device(((cbus_event_data_t*)event_data)->device_id);
+        case CBUSCMD_DEATTACH:      // *** Да се пренапишат търсенията в драйверите. ***
+            cbus_device_list_t *target = NULL, *device = run_config->devices;
+            while ( device && device->id != ((cbus_event_data_t*)event_data)->device_id ) {
+                target = device;
+                device = device->next;
+            }
             if(!device) {
                 cbus_event_err(event_data, CBUS_ERR_DEVICE_NOT_FOUND);
                 return;
@@ -95,7 +99,13 @@ static void cbus_event_handler(void* arg, esp_event_base_t event_base, int32_t e
                 cbus_event_err(event_data, result.error);
                 return;
             }
-            
+            if(target) target->next = device->next;
+            else run_config->devices = device->next;
+
+            free(device);
+            ((cbus_event_data_t*)event_data)->status = CBUS_OK;
+            cbus_event_post(event_data);
+            break;
         default:
             return;
     }
