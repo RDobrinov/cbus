@@ -14,6 +14,7 @@ extern "C" {
 #include <inttypes.h>
 #include "cbus_1wire_driver.h"
 #include "cbus_i2c_driver.h"
+#include "cbus_spi_driver.h"
 #include "esp_event.h"
 
 /**
@@ -111,6 +112,15 @@ typedef struct cbus_device_config {
             uint32_t mosi_gpio:7;
             uint32_t sclk_gpio:7;
             uint32_t cs_gpio:7;
+            uint32_t dummy_bits:4;
+            uint32_t cmd_bits:5;
+            uint32_t addr_bits:7;            
+            uint32_t mode:2;
+            uint32_t pretrans:5;
+            uint32_t postrans:5;
+            uint32_t input_delay:8;
+            uint32_t clock_speed;
+            uint32_t flags;
         } spi_device;
     };
 } cbus_device_config_t;

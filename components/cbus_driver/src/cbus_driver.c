@@ -29,7 +29,7 @@ typedef struct {
 
 static cbus_internal_config_t *run_config = NULL;
 
-void *(*get_bus[3])(void) = {i2cbus_get_bus, ow_get_bus, NULL};
+void *(*get_bus[3])(void) = {i2cbus_get_bus, spi_get_bus, ow_get_bus};
 
 static void cbus_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data);
 

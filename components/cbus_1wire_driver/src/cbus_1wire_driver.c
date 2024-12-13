@@ -140,7 +140,7 @@ static cbus_common_id_t cbus_ow_attach(cbus_device_config_t *payload) {
     /* -> Attach device */
     owbus_device_list_t *new_device_entry = (owbus_device_list_t *)calloc(1, sizeof(owbus_device_list_t));
     if(!new_device_entry) {
-        onewire_bus_del(handle);
+        onewire_bus_del(handle);    /* Not safe delete. Do not check for new created handle */
         gpio_drv_free(payload->ow_device.data_gpio);
         return (cbus_common_id_t) { .error = CBUS_ERR_NO_MEM, .id = 0x00000000UL };
     }

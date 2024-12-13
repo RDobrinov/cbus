@@ -15,6 +15,7 @@
 #include "onewire/onewire_crc.h"
 #include "onewire/onewire_cmd.h"
 #include "cbus_driver.h"
+#include "driver/spi_master.h"
 
 #include "esp_log.h"
 
@@ -50,6 +51,10 @@ void app_main(void)
         }
     };
     printf("sizeof(cbus_device_config_t) %d\n", sizeof(cbus_device_config_t));
+    //cbus_driver_t *spicbus = (cbus_driver_t *)spi_get_bus();
+    printf("sizeof(size_t) %d\n", sizeof(size_t));
+    printf("sizeof(uint32_t) %d\n", sizeof(uint32_t));
+    return;
     cbus_common_id_t desc = cbus->attach(&dev_conf);
 
     uint8_t scanbuf[128];
