@@ -174,16 +174,17 @@ static cbus_common_id_t cbus_i2c_attach(cbus_device_config_t *payload) {
 }
 
 static cbus_common_id_t cbus_i2c_deattach(uint32_t id) {
-    i2cbus_device_list_t *device = i2cbus_find_device(id);
+    i2cbus_device_list_t *device = i2c_devices, *target = NULL;
+    while(device && (device->device_id != id)) {
+        target = device;
+        device = device->next;
+    }
     if(!device) return (cbus_common_id_t) { .error = CBUS_ERR_DEVICE_NOT_FOUND, .id = id };
+
     i2c_master_bus_handle_t master_handle = device->handle->master_bus;
     if( ESP_OK == i2c_master_bus_rm_device(device->handle) ) {
-        if( device == i2c_devices ) i2c_devices = device->next;
-        else {
-            i2cbus_device_list_t *prev = i2c_devices;
-            while( prev && (prev->next != device) ) prev = prev->next;
-            if(prev) prev->next = device->next;
-        }
+        if(target) target->next = device->next;
+        else i2c_devices = device->next;
         free(device);
     } else {
         return (cbus_common_id_t) { .error = CBUS_ERR_UNKNOWN, .id = id };
@@ -236,11 +237,9 @@ static i2c_master_bus_handle_t i2cbus_find_master(gpio_num_t scl, gpio_num_t sda
 }
 
 static i2cbus_device_list_t *i2cbus_find_device(uint32_t id){
-    i2cbus_device_list_t *found = NULL;
-    for(i2cbus_device_list_t *dev = i2c_devices; dev && !found; dev=dev->next) { 
-        if(dev->device_id == id) found = dev;
-    }
-    return found;
+    for(i2cbus_device_list_t *device = i2c_devices; device != NULL; device = device->next)
+        if(device->device_id == id) return device;
+    return NULL;
 }
 
 static void i2cbus_release_master(i2c_master_bus_handle_t handle) {

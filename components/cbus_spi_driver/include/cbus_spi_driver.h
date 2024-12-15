@@ -18,10 +18,14 @@
 extern "C" {
 #endif
 
+/**
+ * @brief Command and address helper structure
+ */
 typedef struct {
-    uint16_t command;
-    uint64_t address;
+    uint16_t command;   /*!< 16-bits spi command */
+    uint64_t address;   /*!< 64-bits spi address */
 } spibus_cmdaddr_t;
+
 /**
  * @brief Create new SPI bus handle
  *
@@ -29,11 +33,6 @@ typedef struct {
  *      - Created handle
  */
 void *spi_get_bus(void);
-
-/**
- * Not used
- */
-void spibus_dump_devices(void);
 
 #ifdef __cplusplus
 }

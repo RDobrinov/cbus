@@ -48,3 +48,9 @@
         .flags = SPI_TRANS_USE_TXDATA,
         .tx_data[0] = 0b10000000
     };
+
+                xdump(payload->data, 8+sizeof(spibus_cmdaddr_t));
+            xdump(&(payload->data[sizeof(spibus_cmdaddr_t)]), 8+(payload->inDataLen));
+            printf("[spi] tx_target: %p, spibus_execute.tx_data: %p, spibus_execute.tx_buffer: %p\n", 
+                    tx_target, spibus_execute.tx_data, spibus_execute.tx_buffer);
+            xdump(tx_target,4);

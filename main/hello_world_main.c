@@ -50,14 +50,71 @@ void app_main(void)
             .disable_ack_check = false
         }
     };
-    printf("sizeof(cbus_device_config_t) %d\n", sizeof(cbus_device_config_t));
-    //cbus_driver_t *spicbus = (cbus_driver_t *)spi_get_bus();
-    printf("sizeof(size_t) %d\n", sizeof(size_t));
-    printf("sizeof(uint32_t) %d\n", sizeof(uint32_t));
-    return;
-    cbus_common_id_t desc = cbus->attach(&dev_conf);
 
     uint8_t scanbuf[128];
+    cbus_driver_t *spidrv = (cbus_driver_t *)spi_get_bus();
+    cbus_common_id_t spidev = spidrv->deattach(0x11E3868CUL);
+    ESP_LOGW("spidrv", "ID:%08lX [%04X]\n", spidev.id, spidev.error);
+    cbus_device_config_t spi_dev_conf = {
+        .bus_type = CBUS_BUS_SPI,
+        .spi_device = {
+            .mosi_gpio = GPIO_NUM_13,
+            .miso_gpio = GPIO_NUM_12,
+            .sclk_gpio = GPIO_NUM_14,
+            .cs_gpio = GPIO_NUM_15,
+            .addr_bits = 8,
+            .cmd_bits = 0,
+            .dummy_bits = 0,
+            .mode = 1,
+            .pretrans = 8,
+            .clock_speed = 2500000,
+            .flags = SPI_DEVICE_HALFDUPLEX | SPI_DEVICE_NO_DUMMY
+        }
+    };
+
+    spidev = spidrv->attach(&spi_dev_conf);
+    //ESP_LOGW("spidrv", "ID:%08lX [%04X]\n", spidev.id, spidev.error);
+    spidev = spidrv->desc(spidev.id, scanbuf, 35);
+    printf("desc: %s\n", scanbuf);
+    cbus_common_cmd_t spi_read_all = {
+        .command = CBUSCMD_READ,
+        .device_id = spidev.id,
+        .inDataLen = 0,
+        .outDataLen = 8,
+        .data = scanbuf
+    };
+    ((spibus_cmdaddr_t *)(spi_read_all.data))->address = 0x00;
+
+    spidev = spidrv->execute(&spi_read_all);
+    //ESP_LOGW("spidrv", "ID:%08lX [%04X]\n", spidev.id, spidev.error);
+    //hexdump(scanbuf, 16);
+
+    cbus_common_cmd_t spi_write_conf = {
+        .command = CBUSCMD_WRITE,
+        .device_id = spidev.id,
+        .inDataLen = 1,
+        .outDataLen = 0,
+        .data = scanbuf
+    };
+    scanbuf[sizeof(spibus_cmdaddr_t)] = 0b10110001;
+    ((spibus_cmdaddr_t *)(spi_write_conf.data))->address = 0x80;
+    ((spibus_cmdaddr_t *)(spi_write_conf.data))->command = 0x4554;
+    spidev = spidrv->execute(&spi_write_conf);
+    ESP_LOGW("spidrv", "ID:%08lX [%04X]\n", spidev.id, spidev.error);
+    vTaskDelay(100);
+    //scanbuf[sizeof(spibus_cmdaddr_t)] = 0b10110001;
+    //spidev = spidrv->execute(&spi_write_conf);
+    //ESP_LOGW("spidrv", "ID:%08lX [%04X]\n", spidev.id, spidev.error);
+    //vTaskDelay(100);
+    ((spibus_cmdaddr_t *)(spi_read_all.data))->address = 0x00;
+    spidev = spidrv->execute(&spi_read_all);
+    //ESP_LOGW("spidrv", "ID:%08lX [%04X]\n", spidev.id, spidev.error);
+    hexdump(scanbuf, 16);
+    return;
+    //Blocked
+    cbus_common_id_t desc = cbus->attach(&dev_conf);
+
+    //uint8_t scanbuf[128];
     cbus->desc(desc.id, scanbuf, 35);
     printf("%s\n", scanbuf);
 

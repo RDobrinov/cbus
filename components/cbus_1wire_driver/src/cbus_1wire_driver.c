@@ -168,6 +168,28 @@ static cbus_common_id_t cbus_ow_attach(cbus_device_config_t *payload) {
 }
 
 static cbus_common_id_t cbus_ow_deattach(uint32_t id) {
+    owbus_device_list_t *device = ow_devices, *target = NULL;
+    while(device && (device->device_id != id)) {
+        target = device;
+        device = device->next;
+    }
+    if(!device) return (cbus_common_id_t) { .error = CBUS_ERR_DEVICE_NOT_FOUND, .id = id };
+    onewire_bus_rmt_obj_t *bus_rmt = __containerof(device->handle, onewire_bus_rmt_obj_t, base);
+    gpio_num_t gpio_num = bus_rmt->tx_channel->gpio_num;
+    if(target) target->next = device->next;
+    else ow_devices = device->next;
+    target = NULL;
+    for(owbus_device_list_t *dev = ow_devices; dev && !target; dev=dev->next) { 
+        if(dev->handle == device->handle) target = dev;
+    }
+    if(!target) {
+        onewire_bus_del(device->handle);
+        gpio_drv_free(gpio_num);
+    }
+    free(device);
+    return (cbus_common_id_t) { .error = CBUS_OK, .id = id };
+}
+/*
     owbus_device_list_t *device = owbus_find_device(id);
     if(!device) return (cbus_common_id_t) { .error = CBUS_ERR_DEVICE_NOT_FOUND, .id = id };
     onewire_bus_rmt_obj_t *bus_rmt = __containerof(device->handle, onewire_bus_rmt_obj_t, base);
@@ -190,6 +212,7 @@ static cbus_common_id_t cbus_ow_deattach(uint32_t id) {
     }
     return (cbus_common_id_t) { .error = CBUS_OK, .id = id };
 }
+*/
 
 static cbus_common_id_t cbus_ow_description(uint32_t id, uint8_t *desc, size_t len) {
     owbus_device_list_t *device = owbus_find_device(id);
@@ -281,21 +304,19 @@ static cbus_common_id_t cbus_ow_command(cbus_common_cmd_t *payload) {
 }
 
 static onewire_bus_handle_t owbus_find_handle(gpio_num_t gpio) {
-    if(!ow_devices) return NULL;
-    owbus_device_list_t *found = NULL;
-    onewire_bus_rmt_obj_t *bus_rmt = NULL;
-    for(owbus_device_list_t *dev = ow_devices; dev && !found; dev=dev->next) { 
-        bus_rmt = __containerof(dev->handle, onewire_bus_rmt_obj_t, base);
-        if(bus_rmt->tx_channel->gpio_num == gpio) found=dev;
+    onewire_bus_rmt_obj_t *bus_rmt;
+    for(owbus_device_list_t *device = ow_devices; device != NULL; device = device->next) { 
+        bus_rmt = __containerof(device->handle, onewire_bus_rmt_obj_t, base);
+        if(bus_rmt->tx_channel->gpio_num == gpio) return device->handle;
     }
-    return (found) ? found->handle : NULL;
+    return NULL;
 }
+
 static owbus_device_list_t *owbus_find_device(uint32_t id) {
-    owbus_device_list_t *found = NULL;
-    for(owbus_device_list_t *dev = ow_devices; dev && !found; dev=dev->next) { 
-        if(dev->device_id == id) found = dev;
+    for(owbus_device_list_t *device = ow_devices; device != NULL; device = device->next) { 
+        if(device->device_id == id) return device;
     }
-    return found;
+    return NULL;
 }
 
 /*
