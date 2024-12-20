@@ -12,7 +12,7 @@
 #include "driver/spi_master.h"
 //#include "esp_event.h"
 
-#include "cbus_driver.h"
+#include "cbus_internal.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -21,10 +21,10 @@ extern "C" {
 /**
  * @brief Command and address helper structure
  */
-typedef struct {
-    uint16_t command;   /*!< 16-bits spi command */
-    uint64_t address;   /*!< 64-bits spi address */
-} spibus_cmdaddr_t;
+//typedef struct {
+//    uint16_t command;   /*!< 16-bits spi command */
+//    uint64_t address;   /*!< 64-bits spi address */
+//} spibus_cmdaddr_t;
 
 /**
  * @brief Create new SPI bus handle

@@ -38,7 +38,7 @@ typedef struct i2cbus_device_list {
  *      - Search for existing i2c master bus or create new one
  *        and attach device to bus
  */
-static cbus_common_id_t cbus_i2c_attach(cbus_device_config_t *payload);
+static cbus_id_t cbus_i2c_attach(cbus_device_config_t *payload);
 
 /**
  * @brief Deattach new I2C device to bus
@@ -49,7 +49,7 @@ static cbus_common_id_t cbus_i2c_attach(cbus_device_config_t *payload);
  * @note
  *      - Deattach device from bus and release bus if no devices left
  */
-static cbus_common_id_t cbus_i2c_deattach(uint32_t id);
+static cbus_id_t cbus_i2c_deattach(uint32_t id);
 
 /**
  * @brief Generate i2c device description
@@ -61,7 +61,7 @@ static cbus_common_id_t cbus_i2c_deattach(uint32_t id);
  * @return
  *      - Common ID structure filled with result code and Device ID
  */
-static cbus_common_id_t cbus_i2c_description(uint32_t id, uint8_t *desc, size_t len);
+static cbus_id_t cbus_i2c_description(uint32_t id, uint8_t *desc, size_t len);
 
 /**
  * @brief Execute command on i2c bus
@@ -71,7 +71,7 @@ static cbus_common_id_t cbus_i2c_description(uint32_t id, uint8_t *desc, size_t 
  * @return
  *      - Common ID structure filled with result code and Device ID
  */
-static cbus_common_id_t cbus_i2c_command(cbus_common_cmd_t *payload);
+static cbus_id_t cbus_i2c_command(cbus_cmd_t *payload);
 
 /**
  * @brief Find for master bus handle
@@ -106,13 +106,13 @@ static void i2cbus_release_master(i2c_master_bus_handle_t bus);
 static i2cbus_device_list_t *i2c_devices = NULL;    /*!< Head of internal device list */
 static cbus_driver_t *cbus_i2c = NULL;  /*!< cbus driver handle */
 
-static cbus_common_id_t cbus_i2c_attach(cbus_device_config_t *payload) {
-    if(payload->bus_type != CBUS_BUS_I2C) return (cbus_common_id_t) { .error = CBUS_ERR_BAD_ARGS, .id = 0x00000000UL };
+static cbus_id_t cbus_i2c_attach(cbus_device_config_t *payload) {
+    if(payload->bus_type != CBUS_BUS_I2C) return (cbus_id_t) { .error = CBUS_ERR_BAD_ARGS, .id = 0x00000000UL };
     uint64_t pinmask = (BIT64(payload->i2c_device.scl_gpio) | BIT64(payload->i2c_device.sda_gpio));
     /* -> I2C Controller acquisition */
     i2c_master_bus_handle_t port_handle = i2cbus_find_master(payload->i2c_device.scl_gpio, payload->i2c_device.sda_gpio);
     if(!port_handle) {
-        if(!gpio_drv_reserve_pins(pinmask)) return (cbus_common_id_t) { .error = CBUS_ERR_PIN_IN_USE, .id = 0x00000000UL };
+        if(!gpio_drv_reserve_pins(pinmask)) return (cbus_id_t) { .error = CBUS_ERR_PIN_IN_USE, .id = 0x00000000UL };
         i2c_master_bus_config_t i2c_bus_config = {
             .clk_source = I2C_CLK_SRC_DEFAULT,
             .i2c_port = -1,
@@ -126,7 +126,7 @@ static cbus_common_id_t cbus_i2c_attach(cbus_device_config_t *payload) {
         if(ESP_OK != err) {
             free(port_handle);
             gpio_drv_free_pins(pinmask);
-            return (cbus_common_id_t) { .error = ( ESP_ERR_NOT_FOUND == err ? CBUS_ERR_NO_MORE_BUSES : CBUS_ERR_UNKNOWN ), .id = 0x00000000UL };
+            return (cbus_id_t) { .error = ( ESP_ERR_NOT_FOUND == err ? CBUS_ERR_NO_MORE_BUSES : CBUS_ERR_UNKNOWN ), .id = 0x00000000UL };
         }
     } /* <- I2C Controller acquisition */
 
@@ -138,7 +138,7 @@ static cbus_common_id_t cbus_i2c_attach(cbus_device_config_t *payload) {
         .i2cbus = port_handle->base->port_num
     };
 
-    if(i2cbus_find_device(new_id.id)) return (cbus_common_id_t) { .error = CBUS_ERR_DEVICE_EXIST, .id = new_id.id };
+    if(i2cbus_find_device(new_id.id)) return (cbus_id_t) { .error = CBUS_ERR_DEVICE_EXIST, .id = new_id.id };
 
     i2c_master_dev_handle_t *new_device_handle = (i2c_master_dev_handle_t *)calloc(1, sizeof(i2c_master_dev_handle_t));
     i2c_device_config_t device_conf = (i2c_device_config_t) { 
@@ -153,14 +153,14 @@ static cbus_common_id_t cbus_i2c_attach(cbus_device_config_t *payload) {
     {
         free(new_device_handle);
         i2cbus_release_master(port_handle);
-        return (cbus_common_id_t) { .error = CBUS_ERR_BAD_ARGS, .id = 0x00000000UL };
+        return (cbus_id_t) { .error = CBUS_ERR_BAD_ARGS, .id = 0x00000000UL };
     }
     i2cbus_device_list_t *new_device_entry = (i2cbus_device_list_t *)calloc(1, sizeof(i2cbus_device_list_t));
     if(!new_device_entry) {
         i2c_master_bus_rm_device(*new_device_handle);
         free(new_device_handle);
         i2cbus_release_master(port_handle);
-        return (cbus_common_id_t) { .error = CBUS_ERR_NO_MEM, .id = 0x00000000UL };
+        return (cbus_id_t) { .error = CBUS_ERR_NO_MEM, .id = 0x00000000UL };
     }
     *new_device_entry = (i2cbus_device_list_t) {
         .handle = *new_device_handle,
@@ -170,16 +170,16 @@ static cbus_common_id_t cbus_i2c_attach(cbus_device_config_t *payload) {
     }; 
     i2c_devices = new_device_entry; /* <- END Attach device */
 
-    return (cbus_common_id_t) { .error = CBUS_OK, .id = new_device_entry->device_id };
+    return (cbus_id_t) { .error = CBUS_OK, .id = new_device_entry->device_id };
 }
 
-static cbus_common_id_t cbus_i2c_deattach(uint32_t id) {
+static cbus_id_t cbus_i2c_deattach(uint32_t id) {
     i2cbus_device_list_t *device = i2c_devices, *target = NULL;
     while(device && (device->device_id != id)) {
         target = device;
         device = device->next;
     }
-    if(!device) return (cbus_common_id_t) { .error = CBUS_ERR_DEVICE_NOT_FOUND, .id = id };
+    if(!device) return (cbus_id_t) { .error = CBUS_ERR_DEVICE_NOT_FOUND, .id = id };
 
     i2c_master_bus_handle_t master_handle = device->handle->master_bus;
     if( ESP_OK == i2c_master_bus_rm_device(device->handle) ) {
@@ -187,44 +187,44 @@ static cbus_common_id_t cbus_i2c_deattach(uint32_t id) {
         else i2c_devices = device->next;
         free(device);
     } else {
-        return (cbus_common_id_t) { .error = CBUS_ERR_UNKNOWN, .id = id };
+        return (cbus_id_t) { .error = CBUS_ERR_UNKNOWN, .id = id };
     }
     i2cbus_release_master(master_handle);
-    return (cbus_common_id_t) { .error = CBUS_OK, .id = id };
+    return (cbus_id_t) { .error = CBUS_OK, .id = id };
 }
 
-static cbus_common_id_t cbus_i2c_description(uint32_t id, uint8_t *desc, size_t len)
+static cbus_id_t cbus_i2c_description(uint32_t id, uint8_t *desc, size_t len)
 {   
     i2cbus_device_list_t *device = i2cbus_find_device(id);
-    if(!device) return (cbus_common_id_t) { .error = CBUS_ERR_DEVICE_NOT_FOUND, .id = id };
+    if(!device) return (cbus_id_t) { .error = CBUS_ERR_DEVICE_NOT_FOUND, .id = id };
     char *buf = (char *)calloc(40, sizeof(uint8_t));
     sprintf(buf, "0x%02X @ i2c/p%02ucl%02uda%02ucs%03u", device->handle->device_address, device->handle->master_bus->base->port_num,
             device->handle->master_bus->base->scl_num, device->handle->master_bus->base->sda_num, (unsigned int)device->handle->scl_speed_hz/1000);
     memcpy(desc, buf, len);
     free(buf);
     desc[len-1] = 0x00;
-    return (cbus_common_id_t) { .error = CBUS_OK, .id = id };
+    return (cbus_id_t) { .error = CBUS_OK, .id = id };
 }
 
-static cbus_common_id_t cbus_i2c_command(cbus_common_cmd_t *payload) {
-    i2cbus_device_list_t *device = i2cbus_find_device(payload->device_id);
-    if(!device) return (cbus_common_id_t) { .error = CBUS_ERR_DEVICE_NOT_FOUND, .id = payload->device_id };
+static cbus_id_t cbus_i2c_command(cbus_cmd_t *payload) {
+    i2cbus_device_list_t *device = i2cbus_find_device(payload->device_transaction.device_id);
+    if(!device) return (cbus_id_t) { .error = CBUS_ERR_DEVICE_NOT_FOUND, .id = payload->device_transaction.device_id };
     esp_err_t err = ESP_OK;
-    switch (payload->command) {
+    switch (payload->device_command.command) {
         case CBUSCMD_READ:
-            err = i2c_master_transmit(device->handle, payload->data, payload->inDataLen, device->xfer_timeout_ms);
+            err = i2c_master_transmit(device->handle, payload->data, payload->device_command.inDataLen, device->xfer_timeout_ms);
             break;
         case CBUSCMD_WRITE:
-            err = i2c_master_receive(device->handle, payload->data, payload->outDataLen, device->xfer_timeout_ms);
+            err = i2c_master_receive(device->handle, payload->data, payload->device_command.outDataLen, device->xfer_timeout_ms);
             break;
         case CBUSCMD_RW:
-            err = i2c_master_transmit_receive(device->handle, payload->data, payload->inDataLen, payload->data, payload->outDataLen, device->xfer_timeout_ms);
+            err = i2c_master_transmit_receive(device->handle, payload->data, payload->device_command.inDataLen, payload->data, payload->device_command.outDataLen, device->xfer_timeout_ms);
             break;
         default:
-            return (cbus_common_id_t) { .error = CBUS_ERR_NOT_USED, .id = payload->device_id };
+            return (cbus_id_t) { .error = CBUS_ERR_NOT_USED, .id = payload->device_transaction.device_id };
             break;
     }
-    return (cbus_common_id_t) { .error = ( (ESP_OK == err) ? CBUS_OK : ((ESP_ERR_TIMEOUT == err) ? CBUS_ERR_TIMEOUT : CBUS_ERR_UNKNOWN) ), .id = payload->device_id }; 
+    return (cbus_id_t) { .error = ( (ESP_OK == err) ? CBUS_OK : ((ESP_ERR_TIMEOUT == err) ? CBUS_ERR_TIMEOUT : CBUS_ERR_UNKNOWN) ), .id = payload->device_transaction.device_id }; 
 }
 
 static i2c_master_bus_handle_t i2cbus_find_master(gpio_num_t scl, gpio_num_t sda) {
@@ -256,7 +256,7 @@ void *i2cbus_get_bus(void) {
         if(cbus_i2c) {
             cbus_i2c->attach = &cbus_i2c_attach;
             cbus_i2c->deattach = &cbus_i2c_deattach;
-            cbus_i2c->desc = &cbus_i2c_description;
+            cbus_i2c->info = &cbus_i2c_description;
             cbus_i2c->execute = &cbus_i2c_command;
         }
     }

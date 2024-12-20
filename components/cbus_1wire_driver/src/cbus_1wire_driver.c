@@ -364,7 +364,7 @@ void *ow_get_bus(void) {
         if(cbus_ow) {
             cbus_ow->attach = &cbus_ow_attach;
             cbus_ow->deattach = &cbus_ow_deattach;
-            cbus_ow->desc = &cbus_ow_description;
+            cbus_ow->info = &cbus_ow_description;
             cbus_ow->execute = &cbus_ow_command;
         }
     }

@@ -36,6 +36,7 @@ typedef enum {
     CBUSCMD_RW,         /*!< Write-Read trasaction with device */
     CBUSCMD_PROBE,      /*!< Probe single device presence */
     CBUSCMD_SCAN,       /*!< Scan bus for devices */
+    CBUSCMD_INFO,       /*!< Get device description  */
     CBUSCMD_ATTACH,     /*!< Attach device to bus */
     CBUSCMD_DEATTACH    /*!< Deattach device from bus */
 } cbus_command_t;
@@ -44,12 +45,12 @@ typedef enum {
  * Type of driver data types
  */
 typedef enum {
-    BUSDATA_BLOB = 0,   /*!< BLOB type */
-    BUSDATA_UINT8,      /*!< BYTE type */
-    BUSDATA_UINT16,     /*!< WORD type - 2 bytes */
-    BUSDATA_UINT32,     /*!< Double word type - 4 bytes */
-    BUSDATA_UINT64,     /*!< Quad word type - 8 bytes */
-    BUSDATA_MAX         /*!< MAX */
+    CBUSDATA_UINT8,     /*!< BYTE type */
+    CBUSDATA_UINT16,    /*!< WORD type - 2 bytes */
+    CBUSDATA_UINT32,    /*!< Double word type - 4 bytes */
+    CCBUSDATA_UINT64,   /*!< Quad word type - 8 bytes */
+    CBUSDATA_BLOB,      /*!< BLOB type */
+    CBUSDATA_MAX        /*!< MAX */
 } cbus_data_t;
 
 /**
@@ -125,100 +126,40 @@ typedef struct cbus_device_config {
     };
 } cbus_device_config_t;
 
-/** Common bus event data structure */
-typedef struct {
-    struct {
-        uint32_t command:4;     /*!< Command to execute */
-        uint32_t data_type:3;   /*!< Data type */
-        uint32_t inDataLen:7;   /*!< Data length send to device */
-        uint32_t outDataLen:7;  /*!< Data length received from device */
-        uint32_t status:4;      /*!< Bus status code */
-        uint32_t reserved:7;    /*!< Not used */
-    };
+/* New strutures */
+
+typedef struct cbus_device_transaction {
     uint32_t device_id;     /*!< Target device ID */
+    uint32_t device_cmd;    /*!< Command send to device */
+    uint64_t reg_address;   /*!< Device register/memory address */
+} cbus_device_transaction_t;
+
+typedef struct cbus_event_command {
+    union {
+        struct {
+            uint32_t command:4;     /*!< Command to execute */
+            uint32_t inDataLen:7;   /*!< Data length send to device */
+            uint32_t outDataLen:7;  /*!< Data length received from device */
+            uint32_t data_type:3;   /*!< Data type */
+            uint32_t status:4;      /*!< Bus status code */
+            uint32_t reserved:7;    /*!< Not used */
+        };
+        uint32_t event_command;
+    };
+} cbus_event_command_t;
+
+typedef struct {
+    cbus_event_command_t cmd;
+    cbus_device_transaction_t transaction;
     uint32_t event_it;      /*!< User event ID */
     uint8_t payload[128];   /*!< Command payload */
 } cbus_event_data_t;
 
-/** 
- * Common bus result data structure 
- * @note
- *      - Data structure that hold result for last ops
- *        and targeted device ID. If no device targeted
- *        device ID holds 0x00000000UL
- */
-typedef struct {
-    union {
-        struct {
-            uint32_t error:4;       /*!< Last result code */
-            uint32_t reserved:28;   /*!< Not used */
-        };
-        uint32_t val;
-    };
-    uint32_t id;    /*!< Target device id */
-} cbus_common_id_t;
-
-/** Common bus command structure */
-typedef struct {
-    struct {
-        uint32_t command:4;     /*!< Command code */
-        uint32_t inDataLen:7;   /*!< Data length send to device */
-        uint32_t outDataLen:7;  /*!< Data length received from device */
-        uint32_t reserved:14;   /*!< Not used */
-    };
-    uint32_t device_id; /*!< Target device id */
-    uint8_t *data;      /*!< Pointer to data buffer */
-} cbus_common_cmd_t;
-
-/**
- * @brief Common bus interface definition
- */
-typedef struct cbus_driver {
-    /**
-     * @brief Attach device to bus driver
-     *
-     * @param[in] payload Pointer to common driver device configuration
-     * @return
-     *      - Common bus id structure
-     */
-    cbus_common_id_t (*attach)(cbus_device_config_t *payload);
-
-    /**
-     * @brief Deattach device from bus driver
-     *
-     * @param[in] id Device ID
-     * @return
-     *      - Common bus id structure
-     */
-    cbus_common_id_t (*deattach)(uint32_t id);
-
-    /**
-     * @brief Device description
-     *
-     * @param[in] id Device ID
-     * @param[in] len Maximum length for device description
-     * @param[out] desc Pointer to char array for description
-     * 
-     * @return
-     *      - Common bus id structure
-     */
-    cbus_common_id_t (*desc)(uint32_t id, uint8_t *desc, size_t len);
-
-    /**
-     * @brief Execute command
-     *
-     * @param[in] payload Pointer to cbus commom command structure
-     * 
-     * @return
-     *      - Common bus id structure
-     */
-    cbus_common_id_t (*execute)(cbus_common_cmd_t *payload);
-    //void * (*deinit_bus)(void *payload);
-} cbus_driver_t;
+/* END New strutures */
 
 //typedef struct cbus_driver *cbus_driver_t;
 
-//esp_event_loop_handle_t *cbus_initialize(void);
+esp_event_loop_handle_t cbus_initialize(void);
 
 #ifdef __cplusplus
 }

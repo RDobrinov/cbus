@@ -59,7 +59,7 @@ static spibus_device_list_t *devices;               /*!< Attached to bus devices
  * @return
  *      - Common ID structure filled with result code and Device ID
  */
-static cbus_common_id_t cbus_spi_attach(cbus_device_config_t *payload);
+static cbus_id_t cbus_spi_attach(cbus_device_config_t *payload);
 
 /**
  * @brief Deatach spi device from bus
@@ -71,7 +71,7 @@ static cbus_common_id_t cbus_spi_attach(cbus_device_config_t *payload);
  *      - Remove device from list, free device handler and free SPI HOST
  *      if no devices left
  */
-static cbus_common_id_t cbus_spi_deattach(uint32_t id);
+static cbus_id_t cbus_spi_deattach(uint32_t id);
 
 /**
  * @brief Generate SPI device description
@@ -83,7 +83,7 @@ static cbus_common_id_t cbus_spi_deattach(uint32_t id);
  * @return
  *      - Common ID structure filled with result code and Device ID
  */
-static cbus_common_id_t cbus_spi_description(uint32_t id, uint8_t *desc, size_t len);
+static cbus_id_t cbus_spi_description(uint32_t id, uint8_t *desc, size_t len);
 
 /**
  * @brief Execute command on spi bus
@@ -93,7 +93,7 @@ static cbus_common_id_t cbus_spi_description(uint32_t id, uint8_t *desc, size_t 
  * @return
  *      - Common ID structure filled with result code and Device ID
  */
-static cbus_common_id_t cbus_spi_command(cbus_common_cmd_t *payload);
+static cbus_id_t cbus_spi_command(cbus_cmd_t *payload);
 
 // static spi_host_device_t spibus_get_host(uint32_t host_pins);
 
@@ -115,8 +115,8 @@ void xdump(const uint8_t *buf, size_t len) {
     return;
 }
 
-static cbus_common_id_t cbus_spi_attach(cbus_device_config_t *payload) {
-    if(payload->bus_type != CBUS_BUS_SPI) return (cbus_common_id_t) { .error = CBUS_ERR_BAD_ARGS, .id = 0x00000000UL };
+static cbus_id_t cbus_spi_attach(cbus_device_config_t *payload) {
+    if(payload->bus_type != CBUS_BUS_SPI) return (cbus_id_t) { .error = CBUS_ERR_BAD_ARGS, .id = 0x00000000UL };
     spibus_device_id_t new_device_id = { 
         .miso_gpio = payload->spi_device.miso_gpio,
         .mosi_gpio = payload->spi_device.mosi_gpio, 
@@ -134,7 +134,7 @@ static cbus_common_id_t cbus_spi_attach(cbus_device_config_t *payload) {
         }
     }
 
-    if(spibus_find_device(new_device_id.id)) return (cbus_common_id_t) { .error = CBUS_ERR_DEVICE_EXIST, .id = new_device_id.id };
+    if(spibus_find_device(new_device_id.id)) return (cbus_id_t) { .error = CBUS_ERR_DEVICE_EXIST, .id = new_device_id.id };
     uint64_t bus_pinmask = (
             BIT64(payload->spi_device.miso_gpio) | BIT64(payload->spi_device.mosi_gpio) | 
             BIT64(payload->spi_device.sclk_gpio) | BIT64(payload->spi_device.cs_gpio));
@@ -143,8 +143,8 @@ static cbus_common_id_t cbus_spi_attach(cbus_device_config_t *payload) {
     bool new_bus = false;
     if(new_device_id.host_id == SPI_HOST_MAX) {
         while (bus_index < SPIBUS_HOST_MAX && !spi_hosts[bus_index].free) bus_index++;
-        if(bus_index == SPIBUS_HOST_MAX) return (cbus_common_id_t) { .error = CBUS_ERR_NO_MORE_BUSES, .id = 0x00000000UL };
-        if(!gpio_drv_reserve_pins(bus_pinmask)) return (cbus_common_id_t) { .error = CBUS_ERR_PIN_IN_USE, .id = 0x00000000UL };
+        if(bus_index == SPIBUS_HOST_MAX) return (cbus_id_t) { .error = CBUS_ERR_NO_MORE_BUSES, .id = 0x00000000UL };
+        if(!gpio_drv_reserve_pins(bus_pinmask)) return (cbus_id_t) { .error = CBUS_ERR_PIN_IN_USE, .id = 0x00000000UL };
         new_device_id.host_id = spi_hosts[bus_index].host_id;
         /* Probe new host */
         spi_bus_config_t bus_config = {
@@ -158,13 +158,13 @@ static cbus_common_id_t cbus_spi_attach(cbus_device_config_t *payload) {
         ret = spi_bus_initialize(new_device_id.host_id, &bus_config, SPI_DMA_CH_AUTO);
         if(ESP_OK != ret) {
             gpio_drv_free_pins(bus_pinmask);
-            return (cbus_common_id_t) { .error = ( ESP_ERR_INVALID_STATE == ret ? CBUS_ERR_NO_MORE_BUSES : CBUS_ERR_UNKNOWN ), .id = 0x00000000UL };
+            return (cbus_id_t) { .error = ( ESP_ERR_INVALID_STATE == ret ? CBUS_ERR_NO_MORE_BUSES : CBUS_ERR_UNKNOWN ), .id = 0x00000000UL };
         }
         new_bus = true;
     }
 
     if(!new_bus && !gpio_drv_reserve(payload->spi_device.cs_gpio)) {
-        return (cbus_common_id_t) { .error = CBUS_ERR_PIN_IN_USE, .id = 0x00000000UL };
+        return (cbus_id_t) { .error = CBUS_ERR_PIN_IN_USE, .id = 0x00000000UL };
     }
 
     spibus_device_list_t *new_element = (spibus_device_list_t *)calloc(1, sizeof(spibus_device_list_t));
@@ -173,7 +173,7 @@ static cbus_common_id_t cbus_spi_attach(cbus_device_config_t *payload) {
             spi_bus_free(new_device_id.host_id);
             gpio_drv_free_pins(bus_pinmask);
         }
-        return (cbus_common_id_t) { .error = CBUS_ERR_NO_MEM, .id = 0x00000000UL };
+        return (cbus_id_t) { .error = CBUS_ERR_NO_MEM, .id = 0x00000000UL };
     }
 
     spi_device_interface_config_t dev_config = {
@@ -198,7 +198,7 @@ static cbus_common_id_t cbus_spi_attach(cbus_device_config_t *payload) {
         }
         else gpio_drv_free(dev_config.spics_io_num);
         free(new_element);
-        return (cbus_common_id_t) { .error = CBUS_ERR_NO_MEM, .id = 0x00000000UL };
+        return (cbus_id_t) { .error = CBUS_ERR_NO_MEM, .id = 0x00000000UL };
     }
     new_element->device_id = new_device_id;
     new_element->next = devices;
@@ -207,19 +207,19 @@ static cbus_common_id_t cbus_spi_attach(cbus_device_config_t *payload) {
         spi_hosts[bus_index].val = ( spi_hosts[bus_index].val & 0xFFE00000UL ) | ( new_element->device_id.id & 0x1FFFFFUL );
         spi_hosts[bus_index].free = 0;
     }
-    return (cbus_common_id_t) { .error = CBUS_OK, .id = new_device_id.id };
+    return (cbus_id_t) { .error = CBUS_OK, .id = new_device_id.id };
 }
 
-static cbus_common_id_t cbus_spi_deattach(uint32_t id) {
+static cbus_id_t cbus_spi_deattach(uint32_t id) {
     spibus_device_list_t *target = NULL, *device = devices;
     while(device && (device->device_id.id != id)) {
         target = device;
         device = device->next;
     }
 
-    if(!device) return (cbus_common_id_t) { .error = CBUS_ERR_DEVICE_NOT_FOUND, .id = id };
+    if(!device) return (cbus_id_t) { .error = CBUS_ERR_DEVICE_NOT_FOUND, .id = id };
     esp_err_t ret = spi_bus_remove_device(device->handle);
-    if(ESP_OK != ret && ESP_ERR_INVALID_STATE != ret) return (cbus_common_id_t) { .error = CBUS_ERR_BAD_ARGS, .id = id }; //Strange state. Bad argument for handle
+    if(ESP_OK != ret && ESP_ERR_INVALID_STATE != ret) return (cbus_id_t) { .error = CBUS_ERR_BAD_ARGS, .id = id }; //Strange state. Bad argument for handle
     if(target) target->next = device->next;
     else devices = device->next;
     ret = spi_bus_free(device->device_id.host_id);
@@ -236,58 +236,61 @@ static cbus_common_id_t cbus_spi_deattach(uint32_t id) {
     gpio_drv_free_pins(BIT64(device->device_id.miso_gpio) | BIT64(device->device_id.mosi_gpio) |
             BIT64(device->device_id.sclk_gpio) | BIT64(device->device_id.cs_gpio) );
     free(device);
-    return (cbus_common_id_t) { .error = CBUS_OK, .id = id };
+    return (cbus_id_t) { .error = CBUS_OK, .id = id };
 }
 
-static cbus_common_id_t cbus_spi_description(uint32_t id, uint8_t *desc, size_t len) {
+static cbus_id_t cbus_spi_description(uint32_t id, uint8_t *desc, size_t len) {
     spibus_device_list_t *device = spibus_find_device(id);
-    if(!device || !desc || !len) return (cbus_common_id_t) { .error = CBUS_ERR_DEVICE_NOT_FOUND, .id = id };
+    if(!device || !desc || !len) return (cbus_id_t) { .error = CBUS_ERR_DEVICE_NOT_FOUND, .id = id };
     char *buf = (char *)calloc(32, sizeof(uint8_t));
     sprintf(buf, "CS%02u @ spi/p%02ucl%02udo%02udi%02u", device->device_id.cs_gpio, device->device_id.host_id, 
         device->device_id.sclk_gpio, device->device_id.mosi_gpio, device->device_id.miso_gpio);
     memcpy(desc, buf, len);
     free(buf);
     desc[len-1] = 0x00;
-    return (cbus_common_id_t) { .error = CBUS_OK, .id = id };
+    return (cbus_id_t) { .error = CBUS_OK, .id = id };
 }
 
-static cbus_common_id_t cbus_spi_command(cbus_common_cmd_t *payload) {
-    spibus_device_list_t *device = spibus_find_device(payload->device_id);
-    if(!device) return (cbus_common_id_t) { .error = CBUS_ERR_DEVICE_NOT_FOUND, .id = payload->device_id };
+static cbus_id_t cbus_spi_command(cbus_cmd_t *payload) {
+    spibus_device_list_t *device = spibus_find_device(payload->device_transaction.device_id);
+    if(!device) return (cbus_id_t) { .error = CBUS_ERR_DEVICE_NOT_FOUND, .id = payload->device_transaction.device_id };
     esp_err_t ret = ESP_OK;
     uint8_t *dma_buf = NULL;
     spi_transaction_t spibus_execute = {
-        .addr = (*(spibus_cmdaddr_t *)payload->data).address,
-        .cmd =  (*(spibus_cmdaddr_t *)payload->data).command,
+        //.addr = (*(spibus_cmdaddr_t *)payload->data).address,
+        //.cmd =  (*(spibus_cmdaddr_t *)payload->data).command,
+        .addr = payload->device_transaction.reg_address,
+        .cmd = (uint16_t)(0xFFFF & payload->device_transaction.device_cmd),
         .tx_buffer = NULL,
         .rx_buffer = NULL
     };
-    switch (payload->command) {
+    switch (payload->device_command.command) {
         case CBUSCMD_READ:
-            if(payload->outDataLen == 0) return (cbus_common_id_t) { .error = CBUS_ERR_BAD_ARGS, .id = payload->device_id };
-            spibus_execute.rxlength = (payload->outDataLen) << 3;
+            if(payload->device_command.outDataLen == 0) return (cbus_id_t) { .error = CBUS_ERR_BAD_ARGS, .id = payload->device_transaction.device_id };
+            spibus_execute.rxlength = (payload->device_command.outDataLen) << 3;
             spibus_execute.length = spibus_execute.rxlength;
             spibus_execute.rx_buffer = payload->data;
             break;
         case CBUSCMD_WRITE:
-            if((payload->inDataLen == 0) || (payload->inDataLen > 32)) return (cbus_common_id_t) { .error = CBUS_ERR_BAD_ARGS, .id = payload->device_id };
-            spibus_execute.length = (payload->inDataLen) << 3;
-            if(payload->inDataLen <= 4) {
+            if((payload->device_command.inDataLen == 0) || (payload->device_command.inDataLen > 32)) return (cbus_id_t) { .error = CBUS_ERR_BAD_ARGS, .id = payload->device_transaction.device_id };
+            spibus_execute.length = (payload->device_command.inDataLen) << 3;
+            if(payload->device_command.inDataLen <= 4) {
                 spibus_execute.flags |= SPI_TRANS_USE_TXDATA;
-                *((uint32_t *)spibus_execute.tx_data) = *((uint32_t *)&(payload->data[sizeof(spibus_cmdaddr_t)]));
+                //*((uint32_t *)spibus_execute.tx_data) = *((uint32_t *)&(payload->data[sizeof(spibus_cmdaddr_t)]));
+                *((uint32_t *)spibus_execute.tx_data) = *((uint32_t *)payload->data);
             } else {
-                dma_buf = heap_caps_aligned_calloc(4, 1, payload->inDataLen, MALLOC_CAP_DMA);
-                if(!dma_buf) return (cbus_common_id_t) { .error = CBUS_ERR_NO_MEM, .id = payload->device_id };
+                dma_buf = heap_caps_aligned_calloc(4, 1, payload->device_command.inDataLen, MALLOC_CAP_DMA);
+                if(!dma_buf) return (cbus_id_t) { .error = CBUS_ERR_NO_MEM, .id = payload->device_transaction.device_id };
                 spibus_execute.tx_buffer = dma_buf;
-                memcpy( dma_buf, &(payload->data[sizeof(spibus_cmdaddr_t)]), payload->inDataLen);
+                memcpy( dma_buf, payload->data, payload->device_command.inDataLen);
             }
             break;
         default:
-            return (cbus_common_id_t) { .error = CBUS_ERR_NOT_USED, .id = payload->device_id };
+            return (cbus_id_t) { .error = CBUS_ERR_NOT_USED, .id = payload->device_transaction.device_id };
     }
     ret = spi_device_polling_transmit(device->handle, &spibus_execute);
     if(dma_buf) heap_caps_free(dma_buf);
-    return (cbus_common_id_t) { .error = (ESP_OK == ret) ? CBUS_OK : CBUS_ERR_UNKNOWN, .id = payload->device_id };
+    return (cbus_id_t) { .error = (ESP_OK == ret) ? CBUS_OK : CBUS_ERR_UNKNOWN, .id = payload->device_transaction.device_id };
 }
 
 /*
@@ -312,7 +315,7 @@ void *spi_get_bus(void) {
         if(cbus_spi) {
             cbus_spi->attach = &cbus_spi_attach;
             cbus_spi->deattach = &cbus_spi_deattach;
-            cbus_spi->desc = &cbus_spi_description;
+            cbus_spi->info = &cbus_spi_description;
             cbus_spi->execute = &cbus_spi_command;
         }
         for(spi_host_device_t spi = SPI2_HOST; spi < SPI_HOST_MAX; spi++) spi_hosts[spi-1] = (spibus_host_t){ .host_id = spi, .free = 1};

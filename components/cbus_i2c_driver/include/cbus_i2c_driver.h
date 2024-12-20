@@ -12,7 +12,7 @@
 #include "driver/i2c_master.h"
 #include "../i2c_private.h"
 
-#include "cbus_driver.h"
+#include "cbus_internal.h"
 
 #ifdef __cplusplus
 extern "C" {
