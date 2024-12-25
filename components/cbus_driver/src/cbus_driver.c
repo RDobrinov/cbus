@@ -6,48 +6,63 @@
 
 #include "cbus_internal.h"
 
+/**
+ * Type of device list element
+ */
 typedef struct cbus_device_list {
-    uint32_t id;
-    cbus_driver_t *handle;
-    struct cbus_device_list *next;
+    uint32_t id;                    /*!< Device ID */
+    struct {
+        uint32_t bus_type:4;        /*!< Device bus type */
+    };
+    cbus_driver_t *handle;          /*!< Device handle */
+    struct cbus_device_list *next;  /*!< Pointer to next element */
 } cbus_device_list_t;
 
 typedef struct {
-    cbus_device_list_t *devices;
-    esp_event_loop_handle_t *cbus_event_loop;
+    uint8_t last_sender_id;                     /*!< Last sender ID (0 - 254) */
+    cbus_device_list_t *devices;                /*!< Device list */
+    esp_event_loop_handle_t cbus_event_loop;    /*!< Common bus driver event loop */
 } cbus_internal_config_t;
 
 ESP_EVENT_DEFINE_BASE(CBUS_EVENT);
 
-static cbus_internal_config_t *run_config = NULL;
+static cbus_internal_config_t *run_config = NULL;   /*!< Internal running configuration */
 
+/**
+ * Pointers to bus initialization functions
+ */
 void *(*get_bus[3])(void) = {i2cbus_get_bus, spi_get_bus, ow_get_bus};      //Dynamic definition
 
+/**
+ * @brief Common bus event handler
+ * 
+ * @param[in] arg Pointer to event argument
+ * @param[in] event_base Event base
+ * @param[in] event_id Event ID
+ * @param[in] event_data Pointer to event data
+ * @return 
+ *      - None
+*/
 static void cbus_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data);
 
+/**
+ * @brief Responce event dispacher
+ * 
+ * @param[in] event_data Pointer to event data
+ * @param[in] result Last ops result
+ * @return 
+ *      - None
+*/
 static void cbus_event_post(cbus_event_data_t *event_data, cbus_id_t *result);
-static cbus_device_list_t *cbus_find_device(uint32_t id);
 
-esp_event_loop_handle_t cbus_initialize(void) {
-    if(!run_config) {
-        run_config = (cbus_internal_config_t *)calloc(1, sizeof(cbus_internal_config_t));
-        if(run_config) {
-            run_config->cbus_event_loop = (esp_event_loop_handle_t *)calloc(1, sizeof(esp_event_loop_handle_t));
-            esp_event_loop_args_t uevent_args = {
-                .queue_size = 10,
-                .task_name = "cbusloop",
-                .task_priority = 15,
-                .task_stack_size = 3072,
-                .task_core_id = tskNO_AFFINITY
-            };
-            esp_event_loop_create(&uevent_args, run_config->cbus_event_loop);
-            if(run_config->cbus_event_loop) {
-                esp_event_handler_instance_register_with(*(run_config->cbus_event_loop), CBUS_EVENT, CBUS_EVENT_EXEC, cbus_event_handler, NULL, NULL );
-            }
-        }
-    }
-    return *(run_config->cbus_event_loop);
-}
+/**
+ * @brief Find device in internal list
+ *
+ * @param[in] id Device id
+ * @return
+ *      - Pointer to internal device list element
+ */
+static cbus_device_list_t *cbus_find_device(uint32_t id);
 
 static void cbus_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
     cbus_event_data_t *event = (cbus_event_data_t*)event_data;
@@ -62,9 +77,11 @@ static void cbus_event_handler(void* arg, esp_event_base_t event_base, int32_t e
             cbus_event_post(event_data, &result);
             return;
         }
+        event->bus_type = device->bus_type;
     }
     switch (event->cmd.command) {
         case CBUSCMD_ATTACH:
+            event->bus_type = ((cbus_device_config_t *)(event->payload))->bus_type;
             cbus_device_list_t *new_device = (cbus_device_list_t *)calloc(1, sizeof(cbus_device_list_t));
             if(!new_device) {
                 result.error = CBUS_ERR_NO_MEM;
@@ -81,6 +98,7 @@ static void cbus_event_handler(void* arg, esp_event_base_t event_base, int32_t e
             result = new_device->handle->attach((cbus_device_config_t *)(event->payload));
             if(CBUS_OK == result.error) {
                 new_device->id = result.id;
+                new_device->bus_type = event->bus_type;
                 new_device->next = run_config->devices;
                 run_config->devices = new_device;
                 event->transaction.device_id = result.id;
@@ -108,7 +126,6 @@ static void cbus_event_handler(void* arg, esp_event_base_t event_base, int32_t e
             else run_config->devices = device->next;
 
             free(device);
-            //((cbus_event_data_t*)event_data)->status = CBUS_OK;
             cbus_event_post(event_data, &result);
             break;
         case CBUSCMD_INFO:
@@ -118,15 +135,20 @@ static void cbus_event_handler(void* arg, esp_event_base_t event_base, int32_t e
         case CBUSCMD_SCAN:
         case CBUSCMD_PROBE:
         case CBUSCMD_RESET:
-            result = device->handle->info(event->transaction.device_id, event->payload, 40); //Probe, scan, reset
+            cmd = (cbus_cmd_t){
+                .device_transaction = event->transaction,
+                .device_command.uCommand = event->cmd.event_command,
+                .data = event->payload
+            };
+            result = device->handle->execute(&cmd);
+            event->transaction.device_id = result.id;
             cbus_event_post(event_data, &result);
             break;
         case CBUSCMD_READ:
         case CBUSCMD_WRITE:
         case CBUSCMD_RW:
             bool read_trans = (event->cmd.command == CBUSCMD_READ || event->cmd.command == CBUSCMD_RW );
-            if(((event->cmd.inDataLen == 0) && (event->cmd.command == CBUSCMD_WRITE || event->cmd.command == CBUSCMD_RW)) || 
-                ((event->cmd.data_type == CBUSDATA_BLOB || event->cmd.data_type == CBUSDATA_MAX) && (event->cmd.outDataLen == 0) && read_trans)) {
+            if( (event->cmd.data_type == CBUSDATA_MAX) || ((event->cmd.data_type == CBUSDATA_BLOB) && (event->cmd.outDataLen == 0) && read_trans) ) {
                 result.error = CBUS_ERR_BAD_ARGS;
                 cbus_event_post(event_data, &result);
                 return;
@@ -134,13 +156,12 @@ static void cbus_event_handler(void* arg, esp_event_base_t event_base, int32_t e
             if((event->cmd.outDataLen == 0) && read_trans) {
                 event->cmd.outDataLen = 1 << event->cmd.data_type;
             }
-            printf("Checked\n");
             cmd = (cbus_cmd_t){
                 .device_transaction = event->transaction,
                 .device_command.uCommand = event->cmd.event_command,
                 .data = event->payload
             };
-            result = device->handle->execute(event_data);
+            result = device->handle->execute(&cmd);
             cbus_event_post(event_data, &result);
             return;
         default:
@@ -153,7 +174,7 @@ static void cbus_event_handler(void* arg, esp_event_base_t event_base, int32_t e
 
 static void cbus_event_post(cbus_event_data_t *event_data, cbus_id_t *result) {
     event_data->cmd.status = result->error;
-    esp_event_post_to(*(run_config->cbus_event_loop), CBUS_EVENT, (CBUS_OK == result->error) ? CBUS_EVENT_DATA : CBUS_EVENT_ERROR, event_data, sizeof(cbus_event_data_t), 1);
+    esp_event_post_to(run_config->cbus_event_loop, CBUS_EVENT, (CBUS_OK == result->error) ? CBUS_EVENT_DATA : CBUS_EVENT_ERROR, event_data, sizeof(cbus_event_data_t), 1);
 }
 
 static cbus_device_list_t *cbus_find_device(uint32_t id) {
@@ -161,4 +182,38 @@ static cbus_device_list_t *cbus_find_device(uint32_t id) {
         if(device->id == id) return device;
     }
     return NULL;
+}
+
+esp_err_t cbus_register(esp_event_loop_handle_t **handle, uint32_t *sender_id) {
+    if(!run_config) {
+        *handle = NULL;
+        run_config = (cbus_internal_config_t *)calloc(1, sizeof(cbus_internal_config_t));
+        if(!run_config) return ESP_ERR_NO_MEM;
+        run_config->last_sender_id = 0xFF;
+        esp_event_loop_args_t uevent_args = {
+            .queue_size = 10,
+            .task_name = "cbusloop",
+            .task_priority = 15,
+            .task_stack_size = 3072,
+            .task_core_id = tskNO_AFFINITY
+        };
+        esp_err_t ret = esp_event_loop_create(&uevent_args, &run_config->cbus_event_loop);
+        if(ESP_OK != ret) {
+            free(run_config);
+            run_config = NULL;
+            return ret;
+        }
+        ret = esp_event_handler_instance_register_with((run_config->cbus_event_loop), CBUS_EVENT, CBUS_EVENT_EXEC, cbus_event_handler, NULL, NULL );
+        if(ESP_OK != ret) {
+            esp_event_loop_delete(run_config->cbus_event_loop);
+            free(run_config);
+            run_config = NULL;
+            return ret;
+        }
+    }
+    if(run_config->last_sender_id == 0x00 && sender_id) return ESP_FAIL;
+    run_config->last_sender_id--;
+    *handle = &(run_config->cbus_event_loop);
+    if(sender_id) *sender_id = run_config->last_sender_id;
+    return ESP_OK;
 }

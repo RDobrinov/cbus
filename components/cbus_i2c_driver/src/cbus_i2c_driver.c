@@ -23,7 +23,12 @@ typedef union {
 /** Type of device list element for attached i2c devices */
 typedef struct i2cbus_device_list {
     uint32_t device_id;                 /*!< Device ID */
-    uint32_t xfer_timeout_ms;           /*!< Device timeout */
+    struct {
+        uint32_t cmd_bytes:2;       /*!< Device command bytes 0-2 */
+        uint32_t addr_bytes:4;      /*!< Device command bytes 0-8 */
+        uint32_t xfer_timeout_ms:4; /*!< Device timeout */
+        uint32_t not_used:22;       /*!< Not used */
+    };
     i2c_master_dev_handle_t handle;     /*!< I2C master device handle */
     struct i2cbus_device_list *next;    /*!< Pointer to next elemen */
 } i2cbus_device_list_t;
@@ -106,6 +111,15 @@ static void i2cbus_release_master(i2c_master_bus_handle_t bus);
 static i2cbus_device_list_t *i2c_devices = NULL;    /*!< Head of internal device list */
 static cbus_driver_t *cbus_i2c = NULL;  /*!< cbus driver handle */
 
+void i2c_hex(const uint8_t *buf, size_t len) {
+    if( !len ) return;
+    //ESP_LOGI("hexdump", "%p", buf);
+    printf("i2c_hex: [%p] ", buf);
+    for(int i=0; i<len; i++) printf("%02X ", buf[i]);
+    printf("\n");
+    return;
+}
+
 static cbus_id_t cbus_i2c_attach(cbus_device_config_t *payload) {
     if(payload->bus_type != CBUS_BUS_I2C) return (cbus_id_t) { .error = CBUS_ERR_BAD_ARGS, .id = 0x00000000UL };
     uint64_t pinmask = (BIT64(payload->i2c_device.scl_gpio) | BIT64(payload->i2c_device.sda_gpio));
@@ -166,6 +180,8 @@ static cbus_id_t cbus_i2c_attach(cbus_device_config_t *payload) {
         .handle = *new_device_handle,
         .device_id = new_id.id,
         .xfer_timeout_ms = payload->i2c_device.xfer_timeout_ms,
+        .cmd_bytes = (payload->i2c_device.cmd_bytes > 2) ? 2 : payload->i2c_device.cmd_bytes,
+        .addr_bytes = (payload->i2c_device.addr_bytes > 8) ? 8 : payload->i2c_device.addr_bytes,
         .next = i2c_devices
     }; 
     i2c_devices = new_device_entry; /* <- END Attach device */
@@ -209,13 +225,32 @@ static cbus_id_t cbus_i2c_description(uint32_t id, uint8_t *desc, size_t len)
 static cbus_id_t cbus_i2c_command(cbus_cmd_t *payload) {
     i2cbus_device_list_t *device = i2cbus_find_device(payload->device_transaction.device_id);
     if(!device) return (cbus_id_t) { .error = CBUS_ERR_DEVICE_NOT_FOUND, .id = payload->device_transaction.device_id };
+    uint8_t shift = device->cmd_bytes + device->addr_bytes;
+    if((CBUSCMD_READ != payload->device_command.command) && (( shift + payload->device_command.inDataLen) > 128)) {
+        return (cbus_id_t) { .error = CBUS_ERR_BAD_ARGS, .id = payload->device_transaction.device_id };
+    } else {
+        if(payload->device_command.inDataLen) {
+            for(int i = payload->device_command.inDataLen -1; i >= 0; i--) { payload->data[i+shift] = payload->data[i]; }
+        }
+    }
+    if(device->cmd_bytes > 0) {
+        if(device->cmd_bytes == 2) *((uint16_t *)payload->data) = (uint16_t)( 0xFFFF & payload->device_transaction.device_cmd);
+        else payload->data[0] = (uint8_t)( 0xFF & payload->device_transaction.device_cmd);
+    }
+    if(device->addr_bytes > 0) {
+        memcpy(&payload->data[device->cmd_bytes], &(payload->device_transaction.reg_address), device->addr_bytes);
+    }
+    
     esp_err_t err = ESP_OK;
     switch (payload->device_command.command) {
         case CBUSCMD_READ:
-            err = i2c_master_transmit(device->handle, payload->data, payload->device_command.inDataLen, device->xfer_timeout_ms);
+            if(shift > 0) err = i2c_master_transmit_receive(device->handle, payload->data, shift, payload->data, payload->device_command.outDataLen, device->xfer_timeout_ms);
+            else err = i2c_master_receive(device->handle, payload->data, payload->device_command.outDataLen, device->xfer_timeout_ms);
             break;
         case CBUSCMD_WRITE:
-            err = i2c_master_receive(device->handle, payload->data, payload->device_command.outDataLen, device->xfer_timeout_ms);
+            printf("[cmd_bytes: %02X, device->addr_bytes %llx] ", (uint8_t)( 0xFF & payload->device_transaction.device_cmd), payload->device_transaction.reg_address);
+            i2c_hex(payload->data, payload->device_command.inDataLen+shift);
+            err = i2c_master_transmit(device->handle, payload->data, payload->device_command.inDataLen+shift, device->xfer_timeout_ms);
             break;
         case CBUSCMD_RW:
             err = i2c_master_transmit_receive(device->handle, payload->data, payload->device_command.inDataLen, payload->data, payload->device_command.outDataLen, device->xfer_timeout_ms);

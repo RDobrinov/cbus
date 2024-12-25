@@ -11,7 +11,7 @@
 #include "idf_gpio_driver.h"
 #include "esp_event.h"
 
-#include "cbus_driver.h"
+#include "cbus_internal.h"
 
 #ifdef __cplusplus
 extern "C" {

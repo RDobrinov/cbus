@@ -153,7 +153,7 @@ static cbus_id_t cbus_spi_attach(cbus_device_config_t *payload) {
             .sclk_io_num = new_device_id.sclk_gpio,
             .quadwp_io_num = -1,
             .quadhd_io_num = -1,
-            .max_transfer_sz = 32       //payload is max 128 TO CHANGE
+            .max_transfer_sz = 128
         };
         ret = spi_bus_initialize(new_device_id.host_id, &bus_config, SPI_DMA_CH_AUTO);
         if(ESP_OK != ret) {
@@ -257,8 +257,6 @@ static cbus_id_t cbus_spi_command(cbus_cmd_t *payload) {
     esp_err_t ret = ESP_OK;
     uint8_t *dma_buf = NULL;
     spi_transaction_t spibus_execute = {
-        //.addr = (*(spibus_cmdaddr_t *)payload->data).address,
-        //.cmd =  (*(spibus_cmdaddr_t *)payload->data).command,
         .addr = payload->device_transaction.reg_address,
         .cmd = (uint16_t)(0xFFFF & payload->device_transaction.device_cmd),
         .tx_buffer = NULL,
@@ -276,7 +274,6 @@ static cbus_id_t cbus_spi_command(cbus_cmd_t *payload) {
             spibus_execute.length = (payload->device_command.inDataLen) << 3;
             if(payload->device_command.inDataLen <= 4) {
                 spibus_execute.flags |= SPI_TRANS_USE_TXDATA;
-                //*((uint32_t *)spibus_execute.tx_data) = *((uint32_t *)&(payload->data[sizeof(spibus_cmdaddr_t)]));
                 *((uint32_t *)spibus_execute.tx_data) = *((uint32_t *)payload->data);
             } else {
                 dma_buf = heap_caps_aligned_calloc(4, 1, payload->device_command.inDataLen, MALLOC_CAP_DMA);
@@ -293,16 +290,6 @@ static cbus_id_t cbus_spi_command(cbus_cmd_t *payload) {
     return (cbus_id_t) { .error = (ESP_OK == ret) ? CBUS_OK : CBUS_ERR_UNKNOWN, .id = payload->device_transaction.device_id };
 }
 
-/*
-static spi_host_device_t spibus_get_host(uint32_t host_pins) {
-    for(uint8_t i=0; i< SPIBUS_HOST_MAX; i++) {
-        if(!spi_hosts[i].free) {
-            if( !((host_pins ^ spi_hosts[i].val) & 0x1FFFFUL))  return spi_hosts[i].host_id;
-        }
-    }
-    return SPI_HOST_MAX;
-}
-*/
 static spibus_device_list_t *spibus_find_device(uint32_t id) {
     for(spibus_device_list_t *device = devices; device != NULL; device = device->next)
         if(device->device_id.id == id) return device;
@@ -320,8 +307,6 @@ void *spi_get_bus(void) {
         }
         for(spi_host_device_t spi = SPI2_HOST; spi < SPI_HOST_MAX; spi++) spi_hosts[spi-1] = (spibus_host_t){ .host_id = spi, .free = 1};
         gpio_drv_init();
-        /* Test */
-        //for(uint8_t i=0; i < (sizeof(spi_buses) / sizeof(spibus_hosts_t)); i++) printf("SPI%02d\n", spi_buses[i].host_id);
     }
     return cbus_spi;
 }

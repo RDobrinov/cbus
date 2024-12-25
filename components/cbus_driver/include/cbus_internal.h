@@ -14,6 +14,9 @@
 extern "C" {
 #endif
 
+/** Device command structure
+* @brief Hold command and data params send to device
+*/
 typedef struct cbus_device_command {
     union {
         struct {

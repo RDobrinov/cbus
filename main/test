@@ -1,4 +1,21 @@
-    spi_bus_config_t bus_config = {
+        event->cmd.inDataLen = 0;
+        event->cmd.command = CBUSCMD_WRITE;
+        esp_event_post_to(cbus_event_loop, CBUS_EVENT, CBUS_EVENT_EXEC, event_data, sizeof(cbus_event_data_t), 1);
+
+        event->cmd.command = CBUSCMD_RW;
+        esp_event_post_to(cbus_event_loop, CBUS_EVENT, CBUS_EVENT_EXEC, event_data, sizeof(cbus_event_data_t), 1);
+
+        event->cmd.inDataLen = 2;
+        event->cmd.data_type = CBUSDATA_BLOB;
+        event->cmd.outDataLen = 0;
+        esp_event_post_to(cbus_event_loop, CBUS_EVENT, CBUS_EVENT_EXEC, event_data, sizeof(cbus_event_data_t), 1);
+
+        event->cmd.command = CBUSCMD_READ;
+        event->cmd.data_type = CBUSDATA_UINT16;
+        esp_event_post_to(cbus_event_loop, CBUS_EVENT, CBUS_EVENT_EXEC, event_data, sizeof(cbus_event_data_t), 1);
+    
+
+spi_bus_config_t bus_config = {
         .mosi_io_num = 13,
         .miso_io_num = 12,
         .sclk_io_num = 14,
