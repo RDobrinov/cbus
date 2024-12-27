@@ -41,10 +41,11 @@ uint64_t swap_uint64( uint64_t val )
 }
 
 static void spi_data_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
+    //return; //BLOCKED
     cbus_event_data_t *event = (cbus_event_data_t *)event_data;
     if(event->bus_type != CBUS_BUS_SPI) return;
-    ESP_LOGW(evtag, "Sender %u,%u [spi_data_event_handler %08lX] data received for device_id %08lX", 
-            (uint8_t)event->sender_id, (uint8_t)event->bus_type, (uint32_t)event->event_id, event->transaction.device_id);
+    //ESP_LOGW(evtag, "Sender %u,%u [spi_data_event_handler %08lX] data received for device_id %08lX", 
+    //        (uint8_t)event->sender_id, (uint8_t)event->bus_type, (uint32_t)event->event_id, event->transaction.device_id);
     
     if(event->cmd.command == CBUSCMD_ATTACH) {
         event->cmd.command = CBUSCMD_INFO;
@@ -62,6 +63,9 @@ static void spi_data_event_handler(void* arg, esp_event_base_t event_base, int32
         event->cmd.command = CBUSCMD_READ;
         event->transaction.reg_address = 0x00;
         esp_event_post_to(*spi_event_loop, CBUS_EVENT, CBUS_EVENT_EXEC, event_data, sizeof(cbus_event_data_t), 1);
+
+        event->cmd.command = CBUSCMD_STATS;
+        esp_event_post_to(*spi_event_loop, CBUS_EVENT, CBUS_EVENT_EXEC, event_data, sizeof(cbus_event_data_t), 1);
         return;
     }
     
@@ -72,14 +76,19 @@ static void spi_data_event_handler(void* arg, esp_event_base_t event_base, int32
     if(event->cmd.command == CBUSCMD_INFO) {
         ESP_LOGW(evtag,"SPI [%08lX] - %s", event->transaction.device_id, event->payload);
     }
+
+    if(event->cmd.command == CBUSCMD_STATS) {
+        printf("%s\n", *(char **)event->payload);
+        free(*(char **)event->payload);
+    }
 }
 
 static void i2c_data_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
-    return; //BLOCKED
+    //return; //BLOCKED
     cbus_event_data_t *event = (cbus_event_data_t *)event_data;
     if(event->bus_type != CBUS_BUS_I2C) return;
-    ESP_LOGW(evtag, "Sender %u,%u [i2c_data_event_handler %08lX] data received for device_id %08lX", 
-            (uint8_t)event->sender_id, (uint8_t)event->bus_type, (uint32_t)event->event_id, event->transaction.device_id);
+    //ESP_LOGW(evtag, "Sender %u,%u [i2c_data_event_handler %08lX] data received for device_id %08lX", 
+    //        (uint8_t)event->sender_id, (uint8_t)event->bus_type, (uint32_t)event->event_id, event->transaction.device_id);
     if(event->cmd.command == CBUSCMD_ATTACH) {
         event->cmd.command = CBUSCMD_INFO;
         esp_event_post_to(*i2c_event_loop, CBUS_EVENT, CBUS_EVENT_EXEC, event_data, sizeof(cbus_event_data_t), 1);
@@ -113,6 +122,10 @@ static void i2c_data_event_handler(void* arg, esp_event_base_t event_base, int32
         event->transaction.reg_address = 0xF7;
         event->cmd.data_type = CBUSDATA_UINT64;
         esp_event_post_to(*i2c_event_loop, CBUS_EVENT, CBUS_EVENT_EXEC, event_data, sizeof(cbus_event_data_t), 1);
+
+        event->cmd.command = CBUSCMD_STATS;
+        esp_event_post_to(*i2c_event_loop, CBUS_EVENT, CBUS_EVENT_EXEC, event_data, sizeof(cbus_event_data_t), 1);
+
         return;
     }
     if(event->cmd.command == CBUSCMD_READ) {
@@ -122,14 +135,18 @@ static void i2c_data_event_handler(void* arg, esp_event_base_t event_base, int32
     if(event->cmd.command == CBUSCMD_INFO) {
         ESP_LOGW(evtag,"[%08lX] - %s", event->transaction.device_id, event->payload);
     }
+    if(event->cmd.command == CBUSCMD_STATS) {
+        printf("%s\n", *(char **)event->payload);
+        free(*(char **)event->payload);
+    }
     return;
 }
 
 static void ow_data_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
-    return;     //Blocked
+    //return;     //Blocked
     cbus_event_data_t *event = (cbus_event_data_t *)event_data;
     if(event->bus_type != CBUS_BUS_1WIRE) return;
-    ESP_LOGW(evtag, "ow_data_event_handler [%08lX] data received for device_id %08lX", (uint32_t)event->event_id, event->transaction.device_id);
+    //ESP_LOGW(evtag, "ow_data_event_handler [%08lX] data received for device_id %08lX", (uint32_t)event->event_id, event->transaction.device_id);
     if(event->cmd.command == CBUSCMD_ATTACH) {
         my_device_id = event->transaction.device_id;
         event->cmd.command = CBUSCMD_INFO;
@@ -166,11 +183,17 @@ static void ow_data_event_handler(void* arg, esp_event_base_t event_base, int32_
         event->transaction.device_cmd = 0xBE;      //READ_STRACHPAD
         event->event_id = 0x55;
         esp_event_post_to(*ow_event_loop, CBUS_EVENT, CBUS_EVENT_EXEC, event_data, sizeof(cbus_event_data_t), 1);
+        event->cmd.command = CBUSCMD_STATS;
+        esp_event_post_to(*ow_event_loop, CBUS_EVENT, CBUS_EVENT_EXEC, event_data, sizeof(cbus_event_data_t), 1);
         event->cmd.command = CBUSCMD_SCAN;
         esp_event_post_to(*ow_event_loop, CBUS_EVENT, CBUS_EVENT_EXEC, event_data, sizeof(cbus_event_data_t), 1);
         return;
     }
     if(event->cmd.command == CBUSCMD_INFO) ESP_LOGW(evtag,"[%08lX] - %s", event->transaction.device_id, event->payload);
+    if(event->cmd.command == CBUSCMD_STATS) {
+        printf("%s\n", *(char **)event->payload);
+        free(*(char **)event->payload);
+    }
     if(event->cmd.command == CBUSCMD_SCAN) {
         ESP_LOGI(evtag, "Found %lu device(s)", event->transaction.device_id);
         for(int i = 0; i<event->transaction.device_id; i++) ESP_LOGI(evtag, "%d - ROM %016llX", i, ((uint64_t *)event->payload)[i]);

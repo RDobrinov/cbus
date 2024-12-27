@@ -11,6 +11,7 @@
 #include "idf_gpio_driver.h"
 #include "esp_event.h"
 
+#include "OneWire_ROMCode.h"
 #include "cbus_internal.h"
 
 #ifdef __cplusplus

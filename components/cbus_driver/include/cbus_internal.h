@@ -54,6 +54,20 @@ typedef struct {
     uint32_t id;    /*!< Target device id */
 } cbus_id_t;
 
+typedef struct {
+    uint64_t timeouts:16;
+    uint64_t crc_error:16;
+    uint64_t other:16;
+    uint64_t spi_corr:4;
+    uint64_t notused:12;
+    uint32_t snd;
+    uint32_t rcv;
+} cbus_statistic_t;
+
+typedef struct {
+    cbus_statistic_t stats;
+    uint64_t other;
+} cbus_stats_data_t;
 
 /**
  * @brief Common bus interface definition
@@ -98,6 +112,16 @@ typedef struct cbus_driver {
      *      - Common bus id structure
      */
     cbus_id_t (*execute)(cbus_cmd_t *payload);
+
+    /**
+     * @brief Execute command
+     *
+     * @param[in] payload Pointer to cbus commom command structure
+     * 
+     * @return
+     *      - Common bus id structure
+     */
+    cbus_id_t (*stats)(uint32_t id, cbus_stats_data_t *stat_data);
     //void * (*deinit_bus)(void *payload);
 } cbus_driver_t;
 

@@ -24,12 +24,13 @@ extern "C" {
  */
 typedef enum {
     CBUSCMD_RESET,      /*!< Reset bus */
-    CBUSCMD_READ,       /*!< Read trasaction to device */
-    CBUSCMD_WRITE,      /*!< Write trasaction to device */
-    CBUSCMD_RW,         /*!< Write-Read trasaction with device */
+    CBUSCMD_READ,       /*!< Read transaction to device */
+    CBUSCMD_WRITE,      /*!< Write transaction to device */
+    CBUSCMD_RW,         /*!< Write-Read transaction with device */
     CBUSCMD_PROBE,      /*!< Probe single device presence */
     CBUSCMD_SCAN,       /*!< Scan bus for devices */
     CBUSCMD_INFO,       /*!< Get device description  */
+    CBUSCMD_STATS,
     CBUSCMD_ATTACH,     /*!< Attach device to bus */
     CBUSCMD_DEATTACH    /*!< Deattach device from bus */
 } cbus_command_t;

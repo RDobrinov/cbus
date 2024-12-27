@@ -4,21 +4,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #include "cbus_i2c_driver.h"
+#include "i2c_private_def.h"
 #include "esp_log.h"
 
-/**
- * @brief Type of unique ID for attached i2c device
-*/
-typedef union {
-    struct {
-        uint32_t i2caddr:10;    /*!< Device I2C Address */
-        uint32_t i2cbus:2;      /*!< Controller bus number */
-        uint32_t gpiosda:7;     /*!< Bus SDA GPIO */
-        uint32_t gpioscl:7;     /*!< Bus SDA GPIO */
-        uint32_t reserved:6;    /*!< Not used */
-    };
-    uint32_t id;                /*!< Single i2c device ID */
-} i2cbus_device_id_t;
 
 /** Type of device list element for attached i2c devices */
 typedef struct i2cbus_device_list {
@@ -29,8 +17,9 @@ typedef struct i2cbus_device_list {
         uint32_t xfer_timeout_ms:4; /*!< Device timeout */
         uint32_t not_used:22;       /*!< Not used */
     };
+    cbus_statistic_t stats;             /*!< Device stats counters */
     i2c_master_dev_handle_t handle;     /*!< I2C master device handle */
-    struct i2cbus_device_list *next;    /*!< Pointer to next elemen */
+    struct i2cbus_device_list *next;    /*!< Pointer to next elements */
 } i2cbus_device_list_t;
 
 /**
@@ -67,6 +56,17 @@ static cbus_id_t cbus_i2c_deattach(uint32_t id);
  *      - Common ID structure filled with result code and Device ID
  */
 static cbus_id_t cbus_i2c_description(uint32_t id, uint8_t *desc, size_t len);
+
+/**
+ * @brief Get device statistics
+ *
+ * @param[in] id Device ID
+ * @param[out] stats Pointer to device statistics to be filled
+ * 
+ * @return
+ *      - Common ID structure filled with result code and Device ID
+ */
+static cbus_id_t cbus_i2c_statistcis(uint32_t id, cbus_stats_data_t *stats);
 
 /**
  * @brief Execute command on i2c bus
@@ -180,6 +180,7 @@ static cbus_id_t cbus_i2c_attach(cbus_device_config_t *payload) {
         .handle = *new_device_handle,
         .device_id = new_id.id,
         .xfer_timeout_ms = payload->i2c_device.xfer_timeout_ms,
+        .stats = new_device_entry->stats = (cbus_statistic_t){},
         .cmd_bytes = (payload->i2c_device.cmd_bytes > 2) ? 2 : payload->i2c_device.cmd_bytes,
         .addr_bytes = (payload->i2c_device.addr_bytes > 8) ? 8 : payload->i2c_device.addr_bytes,
         .next = i2c_devices
@@ -222,6 +223,13 @@ static cbus_id_t cbus_i2c_description(uint32_t id, uint8_t *desc, size_t len)
     return (cbus_id_t) { .error = CBUS_OK, .id = id };
 }
 
+static cbus_id_t cbus_i2c_statistcis(uint32_t id, cbus_stats_data_t *stats) {
+    i2cbus_device_list_t *device = i2cbus_find_device(id);
+    if(!device) return (cbus_id_t) { .error = CBUS_ERR_DEVICE_NOT_FOUND, .id = id };
+    stats->stats = device->stats; 
+    return (cbus_id_t) { .error = CBUS_OK, .id = id };
+}
+
 static cbus_id_t cbus_i2c_command(cbus_cmd_t *payload) {
     i2cbus_device_list_t *device = i2cbus_find_device(payload->device_transaction.device_id);
     if(!device) return (cbus_id_t) { .error = CBUS_ERR_DEVICE_NOT_FOUND, .id = payload->device_transaction.device_id };
@@ -248,16 +256,26 @@ static cbus_id_t cbus_i2c_command(cbus_cmd_t *payload) {
             else err = i2c_master_receive(device->handle, payload->data, payload->device_command.outDataLen, device->xfer_timeout_ms);
             break;
         case CBUSCMD_WRITE:
-            printf("[cmd_bytes: %02X, device->addr_bytes %llx] ", (uint8_t)( 0xFF & payload->device_transaction.device_cmd), payload->device_transaction.reg_address);
-            i2c_hex(payload->data, payload->device_command.inDataLen+shift);
             err = i2c_master_transmit(device->handle, payload->data, payload->device_command.inDataLen+shift, device->xfer_timeout_ms);
             break;
         case CBUSCMD_RW:
-            err = i2c_master_transmit_receive(device->handle, payload->data, payload->device_command.inDataLen, payload->data, payload->device_command.outDataLen, device->xfer_timeout_ms);
+            err = i2c_master_transmit_receive(device->handle, payload->data, payload->device_command.inDataLen+shift, payload->data, payload->device_command.outDataLen, device->xfer_timeout_ms);
             break;
         default:
             return (cbus_id_t) { .error = CBUS_ERR_NOT_USED, .id = payload->device_transaction.device_id };
             break;
+    }
+    if(ESP_OK == err) {
+        if(CBUSCMD_WRITE != payload->device_command.command) {
+            device->stats.rcv += payload->device_command.outDataLen;
+        }
+        if(shift > 0 && (CBUSCMD_READ == payload->device_command.command)) device->stats.snd += shift;
+        else {
+             if(CBUSCMD_READ != payload->device_command.command) device->stats.snd += payload->device_command.inDataLen+shift;
+        }
+    } else { 
+        if(ESP_ERR_TIMEOUT == err) device->stats.timeouts++;
+        else device->stats.other++;
     }
     return (cbus_id_t) { .error = ( (ESP_OK == err) ? CBUS_OK : ((ESP_ERR_TIMEOUT == err) ? CBUS_ERR_TIMEOUT : CBUS_ERR_UNKNOWN) ), .id = payload->device_transaction.device_id }; 
 }
@@ -293,6 +311,7 @@ void *i2cbus_get_bus(void) {
             cbus_i2c->deattach = &cbus_i2c_deattach;
             cbus_i2c->info = &cbus_i2c_description;
             cbus_i2c->execute = &cbus_i2c_command;
+            cbus_i2c->stats = &cbus_i2c_statistcis;
         }
     }
     return cbus_i2c;

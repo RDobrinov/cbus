@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "OneWire_private_def.h"
 #include "cbus_1wire_driver.h"
 #include "onewire/onewire_bus.h"
 #include "onewire/onewire_device.h"
@@ -15,18 +16,6 @@
 
 #include "esp_log.h"
 
-/* Type for 1-Wire device id generator */
-typedef union {
-    struct {
-        uint32_t gpio:7;        /*!< 1-Wire bus pin */
-        uint32_t tx_channel:3;  /*!< RMT TX Channel */
-        uint32_t rx_channel:3;  /*!< RMT RX Channel */
-        uint32_t reserved:3;    /*!< Not used */
-        uint32_t intr_id:16;    /*!< CRC-16/MCRF4XX Seed is part of MAC */
-    };
-    uint32_t id;                /*!< Device ID wrapper */
-} ow_device_id_t;
-
 /* Type of internal device list */
 typedef struct owbus_device_list {
     uint32_t device_id;             /*!< 1-Wire device id */
@@ -37,6 +26,7 @@ typedef struct owbus_device_list {
         uint32_t not_used:25;       /*!< Not used */
     };
     uint64_t address;               /*!< 1-Wire ROM address */
+    cbus_statistic_t stats;         /*!< Device stats counters */
     onewire_bus_handle_t handle;    /*!< 1-Wire bus handle */
     struct owbus_device_list *next; /*!< Pointer to next element */
 } owbus_device_list_t;
@@ -85,6 +75,17 @@ static cbus_id_t cbus_ow_deattach(uint32_t id);
  *      - Common ID structure filled with result code and Device ID
  */
 static cbus_id_t cbus_ow_description(uint32_t id, uint8_t *desc, size_t len);
+
+/**
+ * @brief Get device statistics
+ *
+ * @param[in] id Device ID
+ * @param[out] stats Pointer to device statistics to be filled
+ * 
+ * @return
+ *      - Common ID structure filled with result code and Device ID
+ */
+static cbus_id_t cbus_ow_statistcis(uint32_t id, cbus_stats_data_t *stats);
 
 /**
  * @brief Execute command on 1-Wire bus
@@ -167,6 +168,7 @@ static cbus_id_t cbus_ow_attach(cbus_device_config_t *payload) {
     new_device_entry->crc_check =payload->ow_device.crc_check;
     new_device_entry->handle = handle;
     new_device_entry->next = ow_devices;
+    new_device_entry->stats = (cbus_statistic_t){};
 
     onewire_bus_rmt_obj_t *bus_rmt = __containerof(handle, onewire_bus_rmt_obj_t, base);
     ow_device_id_t new_id = {
@@ -214,11 +216,20 @@ static cbus_id_t cbus_ow_description(uint32_t id, uint8_t *desc, size_t len) {
     if(!device) return (cbus_id_t) { .error = CBUS_ERR_DEVICE_NOT_FOUND, .id = id };
     onewire_bus_rmt_obj_t *bus_rmt = __containerof(device->handle, onewire_bus_rmt_obj_t, base);
     char *buf = (char *)calloc(40, sizeof(uint8_t));
+    /* Channels and gpio from device_id */
     sprintf(buf, "%016llX @ owb/p%02ut%02ur%02u", _swap_romcode(device->address),
             bus_rmt->tx_channel->gpio_num, bus_rmt->tx_channel->channel_id, bus_rmt->rx_channel->channel_id);
     memcpy(desc, buf, len);
     free(buf);
     desc[len-1] = 0x00;
+    return (cbus_id_t) { .error = CBUS_OK, .id = id };
+}
+
+static cbus_id_t cbus_ow_statistcis(uint32_t id, cbus_stats_data_t *stats) {
+    owbus_device_list_t *device = owbus_find_device(id);
+    if(!device) return (cbus_id_t) { .error = CBUS_ERR_DEVICE_NOT_FOUND, .id = id };
+    stats->stats = device->stats; 
+    stats->other = _swap_romcode(device->address);
     return (cbus_id_t) { .error = CBUS_OK, .id = id };
 }
 
@@ -276,8 +287,8 @@ static cbus_id_t cbus_ow_command(cbus_cmd_t *payload) {
         ret.error = (ESP_OK == err) ? CBUS_OK : CBUS_ERR_TIMEOUT;
         return ret; 
     }
+
     uint8_t shift = 9 + device->cmd_bytes + device->addr_bytes;
-    printf("ow_shift %d\n", shift);
     if(( shift + payload->device_command.inDataLen) > 128) {
         ret.error = CBUS_ERR_BAD_ARGS;
         return ret;
@@ -295,8 +306,7 @@ static cbus_id_t cbus_ow_command(cbus_cmd_t *payload) {
     if(device->addr_bytes > 0) {
         memcpy(&(payload->data[9 + device->cmd_bytes]), &(payload->device_transaction.reg_address), device->addr_bytes);
     }
-    printf("[cmd_bytes: %02X, device->addr_bytes %llx] ", (uint8_t)( 0xFF & payload->device_transaction.device_cmd), payload->device_transaction.reg_address);
-    ow_hex(payload->data, payload->device_command.inDataLen+shift);
+
     err = ESP_OK;
     ret.error = CBUS_OK;
     switch (payload->device_command.command) {
@@ -313,8 +323,24 @@ static cbus_id_t cbus_ow_command(cbus_cmd_t *payload) {
             return (cbus_id_t) { .error = CBUS_ERR_NOT_USED, .id = payload->device_transaction.device_id };
             break;
     }
-    ow_hex(payload->data, payload->device_command.inDataLen+shift);
     ret.error = ((ESP_ERR_TIMEOUT == err) ? CBUS_ERR_TIMEOUT : (ESP_OK == err) ? ret.error : CBUS_ERR_UNKNOWN);
+    if(ESP_OK == err) {
+        device->stats.snd += (payload->device_command.inDataLen+shift);
+        if(CBUSCMD_WRITE != payload->device_command.command) {
+            device->stats.rcv += payload->device_command.outDataLen;
+        }
+    } else {
+        switch (ret.error) {
+            case CBUS_ERR_TIMEOUT:
+                device->stats.timeouts++;
+                break;
+            case CBUS_ERR_BAD_CRC:
+                device->stats.crc_error++;
+                break;
+            default:
+                device->stats.other++;
+        }
+    }
     return (cbus_id_t) ret; 
 }
 
@@ -369,6 +395,7 @@ void *ow_get_bus(void) {
             cbus_ow->attach = &cbus_ow_attach;
             cbus_ow->deattach = &cbus_ow_deattach;
             cbus_ow->info = &cbus_ow_description;
+            cbus_ow->stats = &cbus_ow_statistcis;
             cbus_ow->execute = &cbus_ow_command;
         }
     }

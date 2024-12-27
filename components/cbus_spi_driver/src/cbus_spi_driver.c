@@ -4,23 +4,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #include "cbus_spi_driver.h"
+#include "spi_private_def.h"
 #include "esp_log.h"
 
 #define SPIBUS_HOST_MAX (SPI_HOST_MAX - 1)
-
-/**
- * @brief Type of unique ID for attached spi device
-*/
-typedef union {
-    struct {
-        uint32_t miso_gpio:7;   /*!< MISO IO Pin */
-        uint32_t mosi_gpio:7;   /*!< MOSI IO Pin */
-        uint32_t sclk_gpio:7;   /*!< SCLK IO Pin */
-        uint32_t cs_gpio:7;     /*!< CS IO Pin */
-        uint32_t host_id:4;     /*!< SPI Host number */
-    };
-    uint32_t id;                /*!< Single spi device ID */
-} spibus_device_id_t;
 
 /**
  * @brief Type of driver available spi host
@@ -44,6 +31,7 @@ typedef struct spibus_host {
 */
 typedef struct spibus_device_list {
     spibus_device_id_t device_id;       /*!< Device ID */
+    cbus_statistic_t stats;             /*!< Device stats counters */
     spi_device_handle_t handle;         /*!< SPI Device handle */
     struct spibus_device_list *next;    /*!< Pointer to next device */
 } spibus_device_list_t;
@@ -84,6 +72,17 @@ static cbus_id_t cbus_spi_deattach(uint32_t id);
  *      - Common ID structure filled with result code and Device ID
  */
 static cbus_id_t cbus_spi_description(uint32_t id, uint8_t *desc, size_t len);
+
+/**
+ * @brief Get device statistics
+ *
+ * @param[in] id Device ID
+ * @param[out] stats Pointer to device statistics to be filled
+ * 
+ * @return
+ *      - Common ID structure filled with result code and Device ID
+ */
+static cbus_id_t cbus_spi_statistcis(uint32_t id, cbus_stats_data_t *stats);
 
 /**
  * @brief Execute command on spi bus
@@ -201,6 +200,8 @@ static cbus_id_t cbus_spi_attach(cbus_device_config_t *payload) {
         return (cbus_id_t) { .error = CBUS_ERR_NO_MEM, .id = 0x00000000UL };
     }
     new_element->device_id = new_device_id;
+    new_element->stats = (cbus_statistic_t){};
+    new_element->stats.spi_corr = ((payload->spi_device.cmd_bits + payload->spi_device.addr_bits) >> 3);
     new_element->next = devices;
     devices = new_element;
     if(new_bus) {
@@ -251,6 +252,13 @@ static cbus_id_t cbus_spi_description(uint32_t id, uint8_t *desc, size_t len) {
     return (cbus_id_t) { .error = CBUS_OK, .id = id };
 }
 
+static cbus_id_t cbus_spi_statistcis(uint32_t id, cbus_stats_data_t *stats) {
+    spibus_device_list_t *device = spibus_find_device(id);
+    if(!device) return (cbus_id_t) { .error = CBUS_ERR_DEVICE_NOT_FOUND, .id = id };
+    stats->stats = device->stats; 
+    return (cbus_id_t) { .error = CBUS_OK, .id = id };
+}
+
 static cbus_id_t cbus_spi_command(cbus_cmd_t *payload) {
     spibus_device_list_t *device = spibus_find_device(payload->device_transaction.device_id);
     if(!device) return (cbus_id_t) { .error = CBUS_ERR_DEVICE_NOT_FOUND, .id = payload->device_transaction.device_id };
@@ -270,7 +278,7 @@ static cbus_id_t cbus_spi_command(cbus_cmd_t *payload) {
             spibus_execute.rx_buffer = payload->data;
             break;
         case CBUSCMD_WRITE:
-            if((payload->device_command.inDataLen == 0) || (payload->device_command.inDataLen > 32)) return (cbus_id_t) { .error = CBUS_ERR_BAD_ARGS, .id = payload->device_transaction.device_id };
+            if((payload->device_command.inDataLen == 0) || (payload->device_command.inDataLen > 128)) return (cbus_id_t) { .error = CBUS_ERR_BAD_ARGS, .id = payload->device_transaction.device_id };
             spibus_execute.length = (payload->device_command.inDataLen) << 3;
             if(payload->device_command.inDataLen <= 4) {
                 spibus_execute.flags |= SPI_TRANS_USE_TXDATA;
@@ -286,6 +294,14 @@ static cbus_id_t cbus_spi_command(cbus_cmd_t *payload) {
             return (cbus_id_t) { .error = CBUS_ERR_NOT_USED, .id = payload->device_transaction.device_id };
     }
     ret = spi_device_polling_transmit(device->handle, &spibus_execute);
+    if(ESP_OK == ret) {
+        device->stats.snd += device->stats.spi_corr;
+        if(CBUSCMD_WRITE == payload->device_command.command) device->stats.snd += payload->device_command.inDataLen;
+        else device->stats.rcv += payload->device_command.outDataLen;
+    } else {
+        if(ESP_ERR_TIMEOUT == ret) device->stats.timeouts++;
+        else device->stats.other++;
+    }
     if(dma_buf) heap_caps_free(dma_buf);
     return (cbus_id_t) { .error = (ESP_OK == ret) ? CBUS_OK : CBUS_ERR_UNKNOWN, .id = payload->device_transaction.device_id };
 }
@@ -304,6 +320,7 @@ void *spi_get_bus(void) {
             cbus_spi->deattach = &cbus_spi_deattach;
             cbus_spi->info = &cbus_spi_description;
             cbus_spi->execute = &cbus_spi_command;
+            cbus_spi->stats = &cbus_spi_statistcis;
         }
         for(spi_host_device_t spi = SPI2_HOST; spi < SPI_HOST_MAX; spi++) spi_hosts[spi-1] = (spibus_host_t){ .host_id = spi, .free = 1};
         gpio_drv_init();

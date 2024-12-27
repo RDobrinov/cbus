@@ -5,6 +5,9 @@
  */
 
 #include "cbus_internal.h"
+#include "OneWire_private_def.h"
+#include "i2c_private_def.h"
+#include "spi_private_def.h"
 
 /**
  * Type of device list element
@@ -103,7 +106,7 @@ static void cbus_event_handler(void* arg, esp_event_base_t event_base, int32_t e
                 run_config->devices = new_device;
                 event->transaction.device_id = result.id;
             } else free(new_device);
-            cbus_event_post(event_data, &result);
+            //cbus_event_post(event_data, &result);
             break;
         case CBUSCMD_DEATTACH:
             cbus_device_list_t *target = NULL;
@@ -117,6 +120,7 @@ static void cbus_event_handler(void* arg, esp_event_base_t event_base, int32_t e
                 cbus_event_post(event_data, &result);
                 return;
             }
+            event->bus_type = device->bus_type;
             result = device->handle->deattach(device->id);
             if(CBUS_OK != result.error) {
                 cbus_event_post(event_data, &result);
@@ -126,11 +130,52 @@ static void cbus_event_handler(void* arg, esp_event_base_t event_base, int32_t e
             else run_config->devices = device->next;
 
             free(device);
-            cbus_event_post(event_data, &result);
+            //cbus_event_post(event_data, &result);
             break;
         case CBUSCMD_INFO:
             result = device->handle->info(event->transaction.device_id, event->payload, 40);
-            cbus_event_post(event_data, &result);
+            //cbus_event_post(event_data, &result);
+            break;
+        case CBUSCMD_STATS:
+            cbus_stats_data_t dev_stats;
+            result = device->handle->stats(device->id, &dev_stats);
+            if(CBUS_OK == result.error) {
+                char *pstats = (char *)calloc(256, sizeof(uint8_t));
+                int written = 0;
+                if(pstats) {
+                    float rmkb = (dev_stats.stats.rcv > 1000000) ? (float)dev_stats.stats.rcv/1000000.0 : (float)dev_stats.stats.rcv/1000.0;
+                    float smkb = (dev_stats.stats.snd > 1000000) ? (float)dev_stats.stats.snd/1000000.0 : (float)dev_stats.stats.snd/1000.0;
+                    switch (device->bus_type) {
+                        case CBUS_BUS_1WIRE:
+                            written = snprintf(pstats, 70, "ID %08lX Rom %016llX on 1-Wire IO%02u TX RMT%02u, RX RMT%02u\n", 
+                                device->id, dev_stats.other, ((ow_device_id_t)device->id).gpio, 
+                                ((ow_device_id_t)device->id).tx_channel, ((ow_device_id_t)device->id).rx_channel);
+                                break;
+                        case CBUS_BUS_I2C:
+                            written = snprintf(pstats, 70, "ID %08lX Address 0x%03X on I2C%2d with SCL IO%02u, SDA IO%02u\n",
+                                device->id, ((i2cbus_device_id_t)device->id).i2caddr, ((i2cbus_device_id_t)device->id).i2cbus, 
+                                ((i2cbus_device_id_t)device->id).gpioscl, ((i2cbus_device_id_t)device->id).gpiosda);
+                            break;
+                        case CBUS_BUS_SPI:
+                            written = snprintf(pstats, 70, "ID %08lX on SPI%02d with CS IO%02u, MOSI IO%02u, MISO IO%02u, SCLK IO%02u\n",
+                                device->id, ((spibus_device_id_t)device->id).host_id, ((spibus_device_id_t)device->id).cs_gpio, 
+                                ((spibus_device_id_t)device->id).mosi_gpio, ((spibus_device_id_t)device->id).miso_gpio, ((spibus_device_id_t)device->id).sclk_gpio);
+                            break;
+                        default:
+                            result.error = CBUS_ERR_NOT_USED;
+                            break;
+                    }
+                    if(result.error == CBUS_OK) {
+                        snprintf(&(pstats[written]), 140, "RX Bytes %lu (%4.2f %s), TX Bytes %lu (%4.2f %s)\nBus Errors CRC %u, Timeouts %u, Other %u", 
+                            dev_stats.stats.rcv, rmkb, (dev_stats.stats.rcv > 1000000) ? "MB" : "KB", 
+                            dev_stats.stats.snd, smkb, (dev_stats.stats.snd > 1000000) ? "MB" : "KB",
+                            dev_stats.stats.crc_error, dev_stats.stats.timeouts, dev_stats.stats.other);
+                        *(char **)event->payload = pstats;
+                    }
+                }
+                else result.error = CBUS_ERR_NO_MEM;
+            }
+            //cbus_event_post(event_data, &result);
             break;
         case CBUSCMD_SCAN:
         case CBUSCMD_PROBE:
@@ -142,7 +187,8 @@ static void cbus_event_handler(void* arg, esp_event_base_t event_base, int32_t e
             };
             result = device->handle->execute(&cmd);
             event->transaction.device_id = result.id;
-            cbus_event_post(event_data, &result);
+            break;
+            //cbus_event_post(event_data, &result);
             break;
         case CBUSCMD_READ:
         case CBUSCMD_WRITE:
@@ -162,14 +208,15 @@ static void cbus_event_handler(void* arg, esp_event_base_t event_base, int32_t e
                 .data = event->payload
             };
             result = device->handle->execute(&cmd);
-            cbus_event_post(event_data, &result);
-            return;
-        default:
             break;
-        result.error = CBUS_ERR_NOT_USED;
-        cbus_event_post(event_data, &result);
-        return;
+            //cbus_event_post(event_data, &result);
+            //return;
+        default:
+            result.error = CBUS_ERR_NOT_USED;
+            break;
     }
+    cbus_event_post(event_data, &result);
+    return;
 }
 
 static void cbus_event_post(cbus_event_data_t *event_data, cbus_id_t *result) {
