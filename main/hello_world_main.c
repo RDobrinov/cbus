@@ -19,6 +19,8 @@
 
 #include "esp_log.h"
 
+#include "msos_sensors.h"
+
 uint32_t my_device_id;
 cbus_cmd_t ow_cmd;
 esp_event_loop_handle_t *ow_event_loop, *i2c_event_loop, *spi_event_loop;
@@ -209,6 +211,35 @@ static void error_event_handler(void* arg, esp_event_base_t event_base, int32_t 
 void app_main(void)
 {
     printf("Hello world!\n");
+
+    msos_sensor_interface_t main = ds18b20_get_interface();
+    msos_sensor_api_t *new_sensor;
+    ds18b20_config_t conf;
+    conf.data_gpio = GPIO_NUM_32;
+    conf.resolution = DS18B20_RESOLUTION_12_BIT;
+    conf.use_crc = true;
+    conf.rom_code = 0x28FF8CA7741604DBLLU;
+    //printf("main %p\n", main);
+    main->_add(&conf, &new_sensor);
+    printf("new_sensor %p, %p\n", new_sensor, *(new_sensor));
+    //(*new_sensor)->_ready(new_sensor);
+    (*new_sensor)->_init(new_sensor);
+    while(!((*new_sensor)->_ready(new_sensor))) {
+        vTaskDelay(10);
+    }
+    (*new_sensor)->_measure(new_sensor);
+    while(!((*new_sensor)->_ready(new_sensor))) {
+        vTaskDelay(10);
+    }
+    msos_sensor_magnitude_t magnitude;
+    size_t len = 1;
+    (*new_sensor)->_magnitudes(new_sensor, &magnitude, &len);
+    printf("magnitude %d, %d, %d\n", magnitude.magnitude_index, magnitude.magnitude, magnitude.decimals);
+    float value;
+    (*new_sensor)->_get(new_sensor, &magnitude, &value);
+    printf("Temperature %6.3f\n", value);
+
+    return; //BLOCKED
     cbus_event_data_t ow_evt;
     uint32_t sender_id;
     //ow_event_loop = (esp_event_loop_handle_t *)calloc(1, sizeof(esp_event_loop_handle_t));

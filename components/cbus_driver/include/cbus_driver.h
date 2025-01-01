@@ -107,6 +107,7 @@ typedef struct {
         };
         uint32_t val;
     };
+    void *user_device_handle;
     uint8_t payload[128];       /*!< Command payload */
 } cbus_event_data_t;
 
