@@ -180,7 +180,7 @@ static cbus_id_t cbus_i2c_attach(cbus_device_config_t *payload) {
         .handle = *new_device_handle,
         .device_id = new_id.id,
         .xfer_timeout_ms = payload->i2c_device.xfer_timeout_ms,
-        .stats = new_device_entry->stats = (cbus_statistic_t){},
+        .stats  = (cbus_statistic_t){},
         .cmd_bytes = (payload->i2c_device.cmd_bytes > 2) ? 2 : payload->i2c_device.cmd_bytes,
         .addr_bytes = (payload->i2c_device.addr_bytes > 8) ? 8 : payload->i2c_device.addr_bytes,
         .next = i2c_devices

@@ -91,7 +91,12 @@ static cbus_id_t cbus_ow_statistcis(uint32_t id, cbus_stats_data_t *stats);
  * @brief Execute command on 1-Wire bus
  *
  * @param[in] payload Pointer to Common CBUS command structure
- * 
+ * static uint64_t _swap_romcode(uint64_t val)
+{
+    val = ((val << 8) & 0xFF00FF00FF00FF00ULL ) | ((val >> 8) & 0x00FF00FF00FF00FFULL );
+    val = ((val << 16) & 0xFFFF0000FFFF0000ULL ) | ((val >> 16) & 0x0000FFFF0000FFFFULL );
+    return (val << 32) | (val >> 32);
+}
  * @return
  *      - Common ID structure filled with result code and Device ID
  */
