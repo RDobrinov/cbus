@@ -126,7 +126,7 @@ static cbus_id_t cbus_spi_attach(cbus_device_config_t *payload) {
     new_device_id.host_id = SPI_HOST_MAX;
     for(uint8_t i=0; i< SPIBUS_HOST_MAX; i++) {
         if(!spi_hosts[i].free) {
-            if( !((new_device_id.id ^ spi_hosts[i].val) & 0x1FFFFUL)) {
+            if( !((new_device_id.id ^ spi_hosts[i].val) & 0x1FFFFFUL)) {
                 new_device_id.host_id = spi_hosts[i].host_id;
                 break;
             }
