@@ -35,6 +35,14 @@ void hexdump(const uint8_t *buf, size_t len) {
     return;
 }
 
+void xval(const uint8_t *buf, size_t len) {
+    if( !len ) return;
+    //ESP_LOGI("hexdump", "%p", buf);
+    for(int i=(len-1); i>-1; i--) printf("%02X", buf[i]);
+    printf("\n");
+    return;
+}
+
 uint64_t swap_uint64( uint64_t val )
 {
     val = ((val << 8) & 0xFF00FF00FF00FF00ULL ) | ((val >> 8) & 0x00FF00FF00FF00FFULL );
@@ -211,7 +219,19 @@ static void error_event_handler(void* arg, esp_event_base_t event_base, int32_t 
 void app_main(void)
 {
     printf("Hello world!\n");
-
+    float tf = -18.35;
+    int32_t ti = (int32_t)(tf * (float)(1<<8));
+    xval((uint8_t *)&tf, sizeof(float));
+    xval((uint8_t *)&ti, sizeof(uint32_t));
+    return;
+    uint32_t q = 57011UL;
+    float f = (q / 1024.0);
+    printf("%lu, %f\n", q, f);
+    q = f * 1000;
+    printf("%lu, %f\n", q, f);
+    f = q / 1000.0;
+    printf("%lu, %f\n", q, f);
+    return;
     msos_sensor_interface_t main = ds18b20_get_interface();
     msos_sensor_api_t *new_sensor;
     ds18b20_config_t conf;
