@@ -47,7 +47,8 @@ typedef struct {
         uint32_t resolution:2;
         uint32_t ops:4;
         uint32_t temp:16;
-        uint32_t reserved:6;
+        uint32_t error:1;
+        uint32_t reserved:5;
     };
     esp_timer_handle_t measure_timer;
     msos_sensor_api_t base;
